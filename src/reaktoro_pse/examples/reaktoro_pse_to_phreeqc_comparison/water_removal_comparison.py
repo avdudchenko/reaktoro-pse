@@ -31,7 +31,9 @@ def main(save_fig=False, show_fig=True):
     standardModel.initialize(m)
     reaktoro_output_dict = {}
     reaktoro_output_dict["water_removal_percent_sweep"] = {}
+    print(phreeqc_config["water_removal_percent"])
     for wr in phreeqc_config["water_removal_percent"]:
+        print(wr)
         m.water_recovery.fix(wr / 100)
         standardModel.solve(m)
         compUtils.get_reaktoro_solved_outputs(

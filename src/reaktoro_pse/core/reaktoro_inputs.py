@@ -167,24 +167,30 @@ class ReaktoroInputSpec:
         pressure_not_set = True
         temperature_not_set = True
         for input_name, _ in self.state.inputs.items():
-            if input_name == "temperature":
+            if input_name == RktInputTypes.temperature:
                 specs_object.temperature()
                 temperature_not_set = False
-                self.rkt_inputs["temperature"] = self.state.inputs["temperature"]
-                self.rkt_inputs["temperature"].set_lower_bound(0)
-            elif input_name == "pressure":
+                self.rkt_inputs[RktInputTypes.temperature] = self.state.inputs[
+                    RktInputTypes.temperature
+                ]
+                self.rkt_inputs[RktInputTypes.temperature].set_lower_bound(0)
+            elif input_name == RktInputTypes.pressure:
                 specs_object.pressure()
                 pressure_not_set = False
-                self.rkt_inputs["pressure"] = self.state.inputs["pressure"]
-                self.rkt_inputs["pressure"].set_lower_bound(0)
-            elif input_name == "enthalpy":
+                self.rkt_inputs[RktInputTypes.pressure] = self.state.inputs[
+                    RktInputTypes.pressure
+                ]
+                self.rkt_inputs[RktInputTypes.pressure].set_lower_bound(0)
+            elif input_name == RktInputTypes.enthalpy:
                 specs_object.enthalpy()
-                self.rkt_inputs["enthalpy"] = self.state.inputs["enthalpy"]
-                self.rkt_inputs["enthalpy"].set_lower_bound(None)
-            elif input_name == "pH":
+                self.rkt_inputs[RktInputTypes.enthalpy] = self.state.inputs[
+                    RktInputTypes.enthalpy
+                ]
+                self.rkt_inputs[RktInputTypes.enthalpy].set_lower_bound(None)
+            elif input_name == RktInputTypes.pH:
                 specs_object.pH()
-                self.rkt_inputs["pH"] = self.state.inputs["pH"]
-                self.rkt_inputs["pH"].set_lower_bound(0)
+                self.rkt_inputs[RktInputTypes.pH] = self.state.inputs[RktInputTypes.pH]
+                self.rkt_inputs[RktInputTypes.pH].set_lower_bound(0)
             else:
                 pass
         if pressure_not_set:
@@ -196,11 +202,14 @@ class ReaktoroInputSpec:
         if assert_charge_neutrality:
             specs_object.charge()
             if self.neutrality_ion is not None:
-                self.ignore_elements_for_constraints.append(self.neutrality_ion)
+                if self.neutrality_ion == RktInputTypes.pH:
+                    specs_object.openTo("H+")
+                else:
+                    self.ignore_elements_for_constraints.append(self.neutrality_ion)
 
-                if self.neutrality_ion not in specs_object.namesInputs():
-                    # needs to be a species!
-                    specs_object.openTo(self.neutrality_ion)
+                    if self.neutrality_ion not in specs_object.namesInputs():
+                        # needs to be a species!
+                        specs_object.openTo(self.neutrality_ion)
 
         self._find_element_sums()
         # add/check if vars in rkt Inputs
@@ -337,7 +346,7 @@ class ReaktoroInputSpec:
             "NaOH": {"Na": 1, "O": 1, "H": 1},
             "H": {"H": 1},
             "OH": {"O": 1, "H": 1},
-            "H2O_evaporation": {"O": 1, "H": 2},
+            "H2O_evaporation": {"O": -1, "H": -2},
         }
 
     def get_modifier_mw(self, elemental_composition):

@@ -150,20 +150,23 @@ class ReaktoroBlockData(ProcessBlockData):
         ConfigValue(
             default="Cl",
             domain=str,
-            description="Ion to use for maintaining charge neutrality",
-            doc="""This will unfix specified ion during equilibrium calculations while enforcing charge==0 constraint in reaktoro""",
+            description="Ion to use for maintaining charge neutrality (pH, ion, or element)",
+            doc="""This will unfix specified ion during equilibrium calculations while enforcing charge==0 constraint
+              in reaktoro, if exact speciation is provided, pH will be used by default""",
         ),
     )
     CONFIG.declare(
         "assert_charge_neutrality_on_all_blocks",
         ConfigValue(
-            default=False,
+            default=True,
             domain=bool,
             description="Defines if charge neutrality should be applied to both speciation and property block",
             doc="""
             When user provides chemical inputs, its assumed that user wants to modify an equilibrated state, 
             as such a speciation and property block will be built. Charge neutrality would only be applied on speciation block if enabled
-            if this option is set to True then charge neutrality will also be applied on property block """,
+            if this option is set to True then charge neutrality will also be applied on property block, 
+            by default this is set to true, and property block is charge neutralized against pH (H+) if present 
+            in system""",
         ),
     )
 
@@ -511,14 +514,22 @@ class ReaktoroBlockData(ProcessBlockData):
         block.rkt_inputs.register_free_elements(self.config.aqueous_phase.free_element)
         block.rkt_inputs.register_free_elements(self.config.liquid_phase.free_element)
         # register charge neutrality
-        if (
-            speciation_block_built == False
-            or self.config.assert_charge_neutrality_on_all_blocks
-        ):
-            # only ensure charge neutrality when doing first calculation
+        # only ensure charge neutrality when doing first calculation
+        if speciation_block_built == False:
+            # if exact speciation - then charge balance should be done on pH
+            if self.config.exact_speciation == True:
+                # only do so if we have 'H+' in species
+                ion_for_balancing = "pH"
+                if "H+" in block.rkt_state.database_species:
+                    assert_charge_neutrality = True
+
+            else:
+                assert_charge_neutrality = self.config.assert_charge_neutrality
+                ion_for_balancing = self.config.charge_neutrality_ion
+
             block.rkt_inputs.register_charge_neutrality(
-                assert_neutrality=self.config.assert_charge_neutrality,
-                ion=self.config.charge_neutrality_ion,
+                assert_neutrality=assert_charge_neutrality,
+                ion=ion_for_balancing,
             )
             block.rkt_inputs.configure_specs(
                 dissolve_species_in_rkt=self.config.dissolve_species_in_reaktoro,
@@ -526,11 +537,18 @@ class ReaktoroBlockData(ProcessBlockData):
             )
         else:
             # if we have built a speciation block, the feed should be charge neutral and
-            # exact speciation is provided
+            # exact speciation is provided, then we balance on pH only,
+            # user can disable this self.assert_charge_neutrality_on_all_blocks
+            if self.config.assert_charge_neutrality_on_all_blocks:
+                # only do so if we have 'H+' in species
+                if "H+" in block.rkt_state.database_species:
+                    assert_charge_neutrality = True
+            else:
+                assert_charge_neutrality = False
             block.rkt_inputs.register_charge_neutrality(
-                assert_neutrality=False, ion=self.config.charge_neutrality_ion
+                assert_neutrality=assert_charge_neutrality,
+                ion="pH",
             )
-
             block.rkt_inputs.configure_specs(
                 dissolve_species_in_rkt=self.config.dissolve_species_in_reaktoro,
                 exact_speciation=True,
