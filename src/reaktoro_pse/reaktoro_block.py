@@ -160,13 +160,11 @@ class ReaktoroBlockData(ProcessBlockData):
         ConfigValue(
             default=True,
             domain=bool,
-            description="Defines if charge neutrality should be applied to both speciation and property block",
+            description="Defines if charge neutrality should be applied to property_block when build_speciation_block=True",
             doc="""
             When user provides chemical inputs, its assumed that user wants to modify an equilibrated state, 
-            as such a speciation and property block will be built. Charge neutrality would only be applied on speciation block if enabled
-            if this option is set to True then charge neutrality will also be applied on property block, 
-            by default this is set to true, and property block is charge neutralized against pH (H+) if present 
-            in system""",
+            as such a speciation and property block will be built. The speciation block will likely require charge balancing on ion basis (e.g Cl),
+            while property block that received exact speciation will balance on pH, to disable charge balance on property block set this option to False""",
         ),
     )
 
@@ -539,12 +537,12 @@ class ReaktoroBlockData(ProcessBlockData):
         else:
             # if we have built a speciation block, the feed should be charge neutral and
             # exact speciation is provided, then we balance on pH only,
-            # user can disable this self.assert_charge_neutrality_on_all_blocks
+            # user can disable this by setting self.assert_charge_neutrality_on_all_blocks to False
             assert_charge_neutrality = False
             if self.config.assert_charge_neutrality_on_all_blocks:
                 # only do so if we have 'H+' in species
                 if "H+" in block.rkt_state.database_species:
-                    assert_charge_neutrality = True
+                    assert_charge_neutrality = self.config.assert_charge_neutrality
             block.rkt_inputs.register_charge_neutrality(
                 assert_neutrality=assert_charge_neutrality,
                 ion="pH",
