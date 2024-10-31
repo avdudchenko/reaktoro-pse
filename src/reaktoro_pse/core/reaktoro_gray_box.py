@@ -34,13 +34,32 @@ class HessTypes:
 class ReaktoroGrayBox(ExternalGreyBoxModel):
     ########################################################################################
     # custom Grey Box functions
-    def configure(self, reaktoro_solver):
+    def configure(
+        self,
+        reaktoro_solver=None,
+        inputs=None,
+        input_dict=None,
+        outputs=None,
+        hessian_type=None,
+    ):
         # assign a Reaktoro state object to instance
         self.reaktoro_solver = reaktoro_solver
-        self.hess_type = reaktoro_solver.hessian_type
-        self.inputs = reaktoro_solver.input_specs.rkt_inputs.rkt_input_list
-        self.input_dict = reaktoro_solver.input_specs.rkt_inputs
-        self.outputs = list(reaktoro_solver.output_specs.rkt_outputs.keys())
+        if hessian_type is None:
+            self.hess_type = reaktoro_solver.hessian_type
+        else:
+            self.hess_type = hessian_type
+        if inputs is None:
+            self.inputs = reaktoro_solver.input_specs.rkt_inputs.rkt_input_list
+        else:
+            self.inputs = inputs
+        if input_dict is None:
+            self.input_dict = reaktoro_solver.input_specs.rkt_inputs
+        else:
+            self.input_dict = input_dict
+        if outputs is None:
+            self.outputs = list(reaktoro_solver.output_specs.rkt_outputs.keys())
+        else:
+            self.outputs = outputs
         self._outputs_dual_multipliers = np.ones(len(self.outputs))
         self._hess = np.zeros((len(self.inputs), len(self.inputs)))
         self.header_saved = False
@@ -96,7 +115,6 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
                 self.reaktoro_solver.solve_reaktoro_block(params=new_params)
             )
             self.step += 1
-
         self.old_params = copy.deepcopy(new_params)
 
     def evaluate_jacobian_outputs(self):
@@ -112,7 +130,7 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
         np.copyto(self._outputs_dual_multipliers, _outputs_dual_multipliers)
 
     def get_output_constraint_scaling_factors(self):
-        return self.reaktoro_solver.jacobian_scaling_values
+        return self.reaktoro_solver.get_jacobian_scaling()
 
     def hessian_gauss_newton_version(self, sparse_jac, threshold=7):
 

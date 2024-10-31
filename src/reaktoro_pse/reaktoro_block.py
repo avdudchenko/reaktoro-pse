@@ -31,6 +31,7 @@ from reaktoro_pse.core.reaktoro_jacobian import ReaktoroJacobianSpec
 from reaktoro_pse.core.reaktoro_solver import ReaktoroSolver
 from reaktoro_pse.core.reaktoro_block_builder import ReaktoroBlockBuilder
 
+from reaktoro_pse.parallel_tools.reaktoro_block_manager import ReaktoroBlockManager
 
 from reaktoro_pse.reaktoro_block_config.jacobian_options import JacobianOptions
 from reaktoro_pse.reaktoro_block_config.reaktoro_solver_options import (
@@ -61,7 +62,10 @@ class ReaktoroBlockData(ProcessBlockData):
             include_pH=True, aqueous_phase=False, include_solvent_species=True
         ),
     )
-    CONFIG.declare(RktInputTypes.gas_phase, PhaseInput().get_dict())
+    CONFIG.declare(
+        RktInputTypes.gas_phase,
+        PhaseInput().get_dict(include_speciate_phase_component=True),
+    )
     CONFIG.declare(RktInputTypes.condensed_phase, PhaseInput().get_dict())
     CONFIG.declare(RktInputTypes.mineral_phase, PhaseInput().get_dict())
     CONFIG.declare(RktInputTypes.solid_phase, PhaseInput().get_dict())
@@ -77,6 +81,29 @@ class ReaktoroBlockData(ProcessBlockData):
             doc="""If enabled, will construct a speciation block to calculate initial equilibrium state 
              at specified pH. Any chemicals will be added to the property block, enable this when exact composition is unknown and the 
              property state is modified through addition of chemicals or formation of phases that modify final state""",
+        ),
+    )
+    CONFIG.declare(
+        "exclude_species_list",
+        ConfigValue(
+            default=None,
+            domain=list,
+            description="List of species to exclude from speciation in reaktoro",
+            doc="""The species that should not be included when speciating aqueous, liquid, or condensed phases, this 
+            will completely exclude the species from thermodynamic speciation. This is not the same as
+            rkt.exclude. """,
+        ),
+    )
+    CONFIG.declare(
+        "speciation_block_exclude_species",
+        ConfigValue(
+            default=None,
+            domain=list,
+            description="List of species to not include in output of speciation block and input into property block",
+            doc="""If provided then selected species will not be passed from speciation block and into property block. 
+            This is useful for removing species that do not go above 0 and cause issues during solve. No warning or checks
+            are performed by Reaktoro-PSE for scenario where the given species is above 0 at any time during solve. The user
+            should manually verify that the specie did not go above 0 or expected value. """,
         ),
     )
     CONFIG.declare(
@@ -220,6 +247,19 @@ class ReaktoroBlockData(ProcessBlockData):
             """,
         ),
     )
+    CONFIG.declare(
+        "reaktoro_block_manager",
+        ConfigValue(
+            default=None,
+            domain=IsInstance(ReaktoroBlockManager),
+            description="Reaktoro block manager for parallelizing reaktoro solves",
+            doc="""
+            Option to provide a reaktoro block manager which would manage all blocks built on a model and
+            allow their parallel execution. When using ReaktorBlockManager, make sure to run
+            ReaktoroBlockManager.build_reaktoro_blocks() after constructing all of ReaktoroBlocks and 
+            before doing any initialization calls, or interacting with ReaktoroBlocks themself .""",
+        ),
+    )
     CONFIG.declare("jacobian_options", JacobianOptions().get_dict())
 
     CONFIG.declare(
@@ -327,7 +367,9 @@ class ReaktoroBlockData(ProcessBlockData):
                 building_prop_block_after_speciation()
                 and getattr(self.config, phase_type).phase_components is None
             ):
-                return getattr(self.speciation_block.rkt_state, phase_type)
+                return self.speciation_block.rkt_state.phase_manager.registered_phases[
+                    phase_type
+                ].phase_list
             else:
                 return getattr(self.config, phase_type).phase_components
 
@@ -368,8 +410,17 @@ class ReaktoroBlockData(ProcessBlockData):
         liquid_input_composition = self.config.liquid_phase.composition
         condensed_input_composition = self.config.condensed_phase.composition
         if building_prop_block_after_speciation():
+            # we need to ensure when we provide intial input compo into
+            # specitaiton block we don't have exteremely high ion concetration
+            # these value swill be overwritten during intilization anyway
+            for ion, obj in self.speciation_block.outputs.items():
+                if self.config.aqueous_phase.fixed_solvent_specie in ion:
+                    obj.set_value(obj.value * 10)
+                else:
+                    obj.set_value(obj.value / 1000)
             if aqueous_input_composition is not {}:
                 aqueous_input_composition = self.speciation_block.outputs
+
                 liquid_input_composition = {}
                 condensed_input_composition = {}
             elif liquid_input_composition is not {}:
@@ -386,6 +437,7 @@ class ReaktoroBlockData(ProcessBlockData):
                 )
         else:
             aqueous_input_composition = self.config.aqueous_phase.composition
+        block.rkt_state.register_species_to_exclude(self.config.exclude_species_list)
 
         block.rkt_state.register_aqueous_inputs(
             composition=aqueous_input_composition,
@@ -429,8 +481,12 @@ class ReaktoroBlockData(ProcessBlockData):
             block.rkt_state.register_aqueous_phase(get_phases("aqueous_phase"))
             block.rkt_state.register_liquid_phase(get_phases("liquid_phase"))
             block.rkt_state.register_solid_phases(get_phases("solid_phase"))
-            block.rkt_state.register_condensed_phase(get_phases("condensed_phase"))
-            block.rkt_state.register_gas_phase(get_phases("gas_phase"))
+            block.rkt_state.register_condensed_phase(
+                get_phases("condensed_phase"),
+            )
+            block.rkt_state.register_gas_phase(
+                get_phases("gas_phase"), self.config.gas_phase.speciate_phase_component
+            )
             block.rkt_state.register_mineral_phases(get_phases("mineral_phase"))
             block.rkt_state.register_ion_exchange_phase(
                 get_phases("ion_exchange_phase")
@@ -551,6 +607,7 @@ class ReaktoroBlockData(ProcessBlockData):
                 dissolve_species_in_rkt=self.config.dissolve_species_in_reaktoro,
                 exact_speciation=True,
             )
+        block.rkt_inputs.build_input_specs()
 
     def build_rkt_outputs(self, block, speciation_block=False):
         """this will build rkt outputs specified block.
@@ -570,7 +627,14 @@ class ReaktoroBlockData(ProcessBlockData):
             raise ValueError("Outputs must be provided!")
         if speciation_block:
             # when speciating we only want species amounts as output
-            block.rkt_outputs.register_output("speciesAmount", get_all_indexes=True)
+            if self.config.speciation_block_exclude_species is not None:
+                block.rkt_outputs.register_output(
+                    "speciesAmount",
+                    get_all_indexes=True,
+                    ignore_indexes=self.config.speciation_block_exclude_species,
+                )
+            else:
+                block.rkt_outputs.register_output("speciesAmount", get_all_indexes=True)
         else:
             # build user requested outputs
             for output_key, output_var in self.config.outputs.items():
@@ -584,7 +648,13 @@ class ReaktoroBlockData(ProcessBlockData):
                         output_prop = None
                     if isinstance(output_var, bool):
                         block.rkt_outputs.register_output(
-                            output_key, get_all_indexes=output_var
+                            output_key, get_all_indexes=True
+                        )
+                    elif isinstance(output_var, list):
+                        block.rkt_outputs.register_output(
+                            output_key,
+                            get_all_indexes=True,
+                            ignore_indexes=output_var,
                         )
                     else:
                         block.rkt_outputs.register_output(
@@ -663,7 +733,18 @@ class ReaktoroBlockData(ProcessBlockData):
         block.rkt_block_builder.configure_jacobian_scaling(
             jacobian_scaling_type=scaling_type, user_scaling=scaling
         )
-        block.rkt_block_builder.build_reaktoro_block()
+        if self.config.reaktoro_block_manager is not None:
+            managed_block = self.config.reaktoro_block_manager.register_block(
+                state=block.rkt_state,
+                inputs=block.rkt_inputs,
+                outputs=block.rkt_outputs,
+                jacobian=block.rkt_jacobian,
+                solver=block.rkt_solver,
+                builder=block.rkt_block_builder,
+            )
+            block.managed_block = managed_block
+        else:
+            block.rkt_block_builder.build_reaktoro_block()
 
     # TODO: Update to provide output location (e.g. StringIO)
     def display_jacobian_outputs(self):
@@ -694,21 +775,24 @@ class ReaktoroBlockData(ProcessBlockData):
         """Displays reaktoro state"""
         if self.config.build_speciation_block:
             _log.info("-----Displaying information for speciation block ------")
-            _log.info(self.speciation_block.rkt_state.state)
+            self.speciation_block.rkt_block_builder.display_state()
         _log.info("-----Displaying information for property block ------")
-        _log.info(self.rkt_state.state)
+        self.rkt_block_builder.display_state()
 
-    def set_jacobian_scaling(self, user_scaling_dict, set_on_speciation_block=True):
-        """Sets jacobian scaling
+    def update_jacobian_scaling(
+        self, user_scaling_dict=None, set_on_speciation_block=True
+    ):
+        """This will recalculate jacobian scaling and update with user provided values
         Keywords:
         user_scaling_dict -- Dictionary that contains jacobian keys and scaling block
         set_on_speciation_block -- if scaling should be also set on speciation block if built.
         """
         if self.config.build_speciation_block and set_on_speciation_block:
+            self.speciation_block.rkt_block_builder.get_jacobian_scaling()
             self.speciation_block.rkt_block_builder.set_user_jacobian_scaling(
                 user_scaling_dict
             )
-
+        self.rkt_block_builder.get_jacobian_scaling()
         self.rkt_block_builder.set_user_jacobian_scaling(user_scaling_dict)
 
     # TODO: Update to use new initialization method https://idaes-pse.readthedocs.io/en/stable/reference_guides/initialization/developing_initializers.html?highlight=Initializer
