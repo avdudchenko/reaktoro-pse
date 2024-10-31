@@ -94,9 +94,10 @@ class ReaktoroInputSpec:
                 self.register_chemistry_modifier(chemical, obj)
 
     def register_chemistry_modifier(self, chemical, pyomo_var):
+        chemical = self.safe_modifier_name(chemical)
         if chemical not in self.chemical_to_elements:
             raise ValueError(
-                f"{chemical} is not avaialbe in chemical_to_element dict, please add"
+                f"{chemical} is not available in chemical_to_element dict, please add"
             )
         self.rkt_chemical_inputs[chemical] = RktInput(
             var_name=chemical, pyomo_var=pyomo_var
@@ -296,7 +297,6 @@ class ReaktoroInputSpec:
         self.active_species = []
         rktState = self.state.state
         if self.exact_speciation == False:
-            # self.rktActiveSpecies.append(self.aqueousSolvent)
             for phase in self.state.inputs.registered_phases:
                 if phase in self.fixed_solvent_specie:
                     specie_elements = self.specie_to_elements[
@@ -388,6 +388,25 @@ class ReaktoroInputSpec:
             "OH": {"O": 1, "H": 1},
             "H2O_evaporation": {"O": -1, "H": -2},
         }
+        self.ensure_safe_modifier_names()
+
+    def ensure_safe_modifier_names(self):
+        """we need to ensure any chemical has a safe subname added
+        so it does not override exact species (e.g. HCl can exist in database)"""
+        for key in list(self.chemical_to_elements.keys()):
+            self.chemical_to_elements[self.safe_modifier_name(key)] = (
+                self.chemical_to_elements.pop(key)
+            )
+
+    def safe_modifier_name(self, name):
+        """ensures we use safe modifiers that do not replicate
+        real species, e.g. exact species might contain HCl, but we might want
+        to also add HCl to system, internally we want to track it as
+        modifier_HCl it will be bound to provided pyomo var regardless"""
+        if "modifier_" not in name:
+            return f"modifier_{name}"
+        else:
+            return name
 
     def get_modifier_mw(self, elemental_composition):
         mw = 0
@@ -399,6 +418,7 @@ class ReaktoroInputSpec:
     def register_modifier(self, new_chemical):
         if new_chemical is not None:
             self.chemical_to_elements.update(new_chemical)
+        self.ensure_safe_modifier_names()
 
     def write_element_sum_constraint(self, spec_object, element):
         """writes a sum of elements constraint for reaktoro"""
@@ -467,7 +487,6 @@ class ReaktoroInputSpec:
         idx = spec_object.addInput(f"volume_{phase}")
         constraint = rkt.EquationConstraint()
         constraint.id = f"{phase}_volume_constraint"
-
         constraint.fn = lambda props, w: w[idx] - props.phaseProps(phase).volume()
         spec_object.addConstraint(constraint)
 
