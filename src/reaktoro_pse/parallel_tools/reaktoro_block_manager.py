@@ -225,7 +225,7 @@ class ReaktoroBlockManagerData(ProcessBlockData):
     CONFIG.declare(
         "worker_timeout",
         ConfigValue(
-            default=60,
+            default=300,
             domain=int,
             description="Defines time in seconds for worker time out",
             doc="""This is time out for parallel workers to time out and shut down if they receive no 
