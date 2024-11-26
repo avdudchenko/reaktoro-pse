@@ -381,6 +381,7 @@ class ReaktoroInputSpec:
         self.chemical_to_elements = {
             "HCl": {"H": 1, "Cl": 1},
             "CaO": {"Ca": 1, "O": 1},
+            "Ca(OH)2": {"Ca": 1, "O": 2,"H":2},
             "Na2CO3": {"Na": 2, "C": 1, "O": 3},
             "CO2": {"C": 1, "O": 2},
             "NaOH": {"Na": 1, "O": 1, "H": 1},
