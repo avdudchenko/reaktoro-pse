@@ -410,9 +410,9 @@ class ReaktoroBlockData(ProcessBlockData):
         liquid_input_composition = self.config.liquid_phase.composition
         condensed_input_composition = self.config.condensed_phase.composition
         if building_prop_block_after_speciation():
-            # we need to ensure when we provide intial input compo into
-            # specitaiton block we don't have exteremely high ion concetration
-            # these value swill be overwritten during intilization anyway
+            # we need to ensure when we provide initial input compo into
+            # speciation block we don't have extremely high ion concentration
+            # these value swill be overwritten during initialization anyway
             for ion, obj in self.speciation_block.outputs.items():
                 if self.config.aqueous_phase.fixed_solvent_specie in ion:
                     obj.set_value(obj.value * 10)

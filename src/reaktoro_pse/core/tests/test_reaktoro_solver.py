@@ -35,7 +35,7 @@ from reaktoro_pse.core.tests.test_reaktoro_state import (
 )
 import pickle
 
-__author__ = "Alexander V. Dudchenko (SLAC)"
+__author__ = "Alexander V. Dudchenko (NETL)"
 
 
 @pytest.fixture

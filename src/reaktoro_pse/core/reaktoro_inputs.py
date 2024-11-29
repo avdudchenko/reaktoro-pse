@@ -149,7 +149,7 @@ class ReaktoroInputSpec:
         """configures specification for the problem
 
         Keyword arguments:
-        dissolveSpeciesInRkt -- If true, species would be summed up to element amount in rkt, if false
+        dissolve_sepcies_in_rkt -- If true, species would be summed up to element amount in rkt, if false
         mode will contain conditions to build pyomo constraints via raktorooutput class
         exact_speciation -- if True, will write exact element amount for all input species other wise
         will leave  H, and O open, while fixing aqueousSolvent to specified value (e.g. H2O)
@@ -202,7 +202,9 @@ class ReaktoroInputSpec:
                 ] = specie.elements().coefficients()[i]
         self.chemical_to_elements.update(self.specie_to_elements)
 
-    def add_specs(self, specs_object, assert_charge_neutrality, dissolveSpeciesInRkt):
+    def add_specs(
+        self, specs_object, assert_charge_neutrality, dissolve_species_in_rkt
+    ):
         # ignore elements for constraints
 
         pressure_not_set = True
@@ -254,7 +256,7 @@ class ReaktoroInputSpec:
 
         self._find_element_sums()
         # add/check if vars in rkt Inputs
-        if dissolveSpeciesInRkt:
+        if dissolve_species_in_rkt:
             self.write_active_species(specs_object)
         else:
             for element in self.constraint_dict:
@@ -265,7 +267,7 @@ class ReaktoroInputSpec:
 
         # write reaktoro constraints to spec
         for element in self.constraint_dict:
-            if dissolveSpeciesInRkt:
+            if dissolve_species_in_rkt:
                 self.write_element_sum_constraint(specs_object, element)
             else:
                 self.write_elementAmount_constraint(specs_object, element)
@@ -363,6 +365,7 @@ class ReaktoroInputSpec:
             input_name = f"input{specie}"
             idx = spec_object.addInput(input_name)
             if specie in self.state.inputs:
+
                 self.rkt_inputs[specie] = self.state.inputs[specie]
                 self.rkt_inputs[specie].set_rkt_index(idx)
                 self.rkt_inputs[specie].set_rkt_input_name(input_name)
@@ -380,6 +383,7 @@ class ReaktoroInputSpec:
         """defines species to element conversions"""
         self.chemical_to_elements = {
             "HCl": {"H": 1, "Cl": 1},
+            "H2SO4": {"H": 2, "S": 1, "O": 4},
             "CaO": {"Ca": 1, "O": 1},
             "Ca(OH)2": {"Ca": 1, "O": 2, "H": 2},
             "Na2CO3": {"Na": 2, "C": 1, "O": 3},
