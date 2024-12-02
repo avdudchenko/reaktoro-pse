@@ -141,6 +141,8 @@ class RemoteWorker:
 
     def update_inputs(self):
         for i, key in enumerate(self.inputs.rkt_inputs.keys()):
+
+            print("remote", key, self.input_matrix[0][i], self.input_matrix[1][i])
             self.inputs.rkt_inputs[key].value = self.input_matrix[0][i]
             self.inputs.rkt_inputs[key].converted_value = self.input_matrix[1][i]
 
@@ -180,14 +182,12 @@ class LocalWorker:
         # index 1 for converted values for init
         # index 3 for ipopt solver calls
         self.input_keys = self.worker_data.inputs.rkt_inputs.keys()
-        input_matrix = np.zeros(
-            (3, len(self.worker_data.inputs.rkt_inputs.keys())), dtype=np.float64
-        )
+        input_matrix = np.zeros((3, len(self.input_keys)), dtype=np.float64)
         self.input_reference = shared_memory.SharedMemory(
             create=True, size=input_matrix.nbytes
         )
         self.input_matrix = np.ndarray(
-            (3, len(self.worker_data.inputs.rkt_inputs.keys())),
+            (3, len(self.input_keys)),
             dtype=np.float64,
             buffer=self.input_reference.buf,
         )
@@ -222,7 +222,16 @@ class LocalWorker:
 
     def initialize(self, presolve):
         for i, key in enumerate(self.input_keys):
-
+            print(
+                "local",
+                key,
+                np.float64(self.worker_data.inputs.rkt_inputs[key].get_value()),
+                np.float64(
+                    self.worker_data.inputs.rkt_inputs[key].get_value(
+                        apply_conversion=True
+                    )
+                ),
+            )
             self.input_matrix[0][i] = np.float64(
                 self.worker_data.inputs.rkt_inputs[key].get_value()
             )

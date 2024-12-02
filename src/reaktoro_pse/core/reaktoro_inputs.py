@@ -513,6 +513,7 @@ class ReaktoroInputSpec:
         export_object.neutrality_ion = self.neutrality_ion
         export_object.dissolve_species_in_rkt = self.dissolve_species_in_rkt
         export_object.exact_speciation = self.exact_speciation
+        export_object.chemical_to_elements = self.chemical_to_elements
         return export_object
 
     def load_from_export_object(self, export_object):
@@ -526,3 +527,4 @@ class ReaktoroInputSpec:
         self.neutrality_ion = export_object.neutrality_ion
         self.dissolve_species_in_rkt = export_object.dissolve_species_in_rkt
         self.exact_speciation = export_object.exact_speciation
+        self.chemical_to_elements = export_object.chemical_to_elements
