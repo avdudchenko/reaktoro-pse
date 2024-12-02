@@ -788,11 +788,11 @@ class ReaktoroBlockData(ProcessBlockData):
         set_on_speciation_block -- if scaling should be also set on speciation block if built.
         """
         if self.config.build_speciation_block and set_on_speciation_block:
-            self.speciation_block.rkt_block_builder.get_jacobian_scaling()
+            self.speciation_block.rkt_block_builder.set_jacobian_scaling()
             self.speciation_block.rkt_block_builder.set_user_jacobian_scaling(
                 user_scaling_dict
             )
-        self.rkt_block_builder.get_jacobian_scaling()
+        self.rkt_block_builder.set_jacobian_scaling()
         self.rkt_block_builder.set_user_jacobian_scaling(user_scaling_dict)
 
     # TODO: Update to use new initialization method https://idaes-pse.readthedocs.io/en/stable/reference_guides/initialization/developing_initializers.html?highlight=Initializer

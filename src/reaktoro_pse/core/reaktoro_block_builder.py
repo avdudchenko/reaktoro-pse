@@ -255,7 +255,7 @@ class ReaktoroBlockBuilder:
 
     def initialize_output_variables_and_constraints(self):
         for key, obj in self.solver.output_specs.user_outputs.items():
-            """update vars scaling in pyomo build ocnstraints
+            """update vars scaling in pyomo build constraints
             these are updated to actual value when we call solve_rektoro_block"""
             if PropTypes.pyomo_built_prop == obj.property_type:
                 for (
@@ -295,10 +295,10 @@ class ReaktoroBlockBuilder:
                 )
 
         # update jacobian scaling
-        self.get_jacobian_scaling()
+        self.set_jacobian_scaling()
         self.set_user_jacobian_scaling()
 
-    def get_jacobian_scaling(self):
+    def set_jacobian_scaling(self):
         if self.jacobian_scaling_type == JacScalingTypes.no_scaling:
             for i, (key, obj) in enumerate(
                 self.solver.output_specs.rkt_outputs.items()
@@ -314,6 +314,9 @@ class ReaktoroBlockBuilder:
             self.solver.jacobian_scaling_values = (
                 np.sum(np.abs(self.solver.jacobian_matrix) ** 2, axis=1) ** 0.5
             )
+
+    def get_jacobian_scaling(self):
+        return self.solver.jacobian_scaling_values
 
     def set_user_jacobian_scaling(self, user_scaling=None):
 
