@@ -19,7 +19,7 @@ from pyomo.environ import (
     assert_optimal_termination,
     units as pyunits,
 )
-from watertap.core.solvers import get_solver
+from watertap_solvers import get_solver
 
 
 @pytest.fixture

@@ -219,7 +219,7 @@ class ReaktoroBlockManagerData(ProcessBlockData):
             default=True,
             domain=bool,
             description="Enables use of parallel workers",
-            doc="""If true, will parallelize all rekatoro solver calls using multiprocessing""",
+            doc="""If true, will parallelize all reaktoro solver calls using multiprocessing""",
         ),
     )
     CONFIG.declare(

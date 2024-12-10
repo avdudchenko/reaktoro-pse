@@ -35,7 +35,7 @@ from reaktoro_pse.core.tests.test_reaktoro_state import (
 )
 from pyomo.environ import Block, assert_optimal_termination
 from idaes.core.util.model_statistics import degrees_of_freedom
-from watertap.core.solvers import get_solver
+from watertap_solvers import get_solver
 
 
 @pytest.fixture
