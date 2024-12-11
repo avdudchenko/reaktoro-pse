@@ -142,7 +142,6 @@ class RemoteWorker:
     def update_inputs(self):
         for i, key in enumerate(self.inputs.rkt_inputs.keys()):
 
-            print("remote", key, self.input_matrix[0][i], self.input_matrix[1][i])
             self.inputs.rkt_inputs[key].value = self.input_matrix[0][i]
             self.inputs.rkt_inputs[key].converted_value = self.input_matrix[1][i]
 
@@ -222,16 +221,6 @@ class LocalWorker:
 
     def initialize(self, presolve):
         for i, key in enumerate(self.input_keys):
-            print(
-                "local",
-                key,
-                np.float64(self.worker_data.inputs.rkt_inputs[key].get_value()),
-                np.float64(
-                    self.worker_data.inputs.rkt_inputs[key].get_value(
-                        apply_conversion=True
-                    )
-                ),
-            )
             self.input_matrix[0][i] = np.float64(
                 self.worker_data.inputs.rkt_inputs[key].get_value()
             )
