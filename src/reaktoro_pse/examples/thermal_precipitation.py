@@ -19,7 +19,7 @@ from pyomo.environ import (
     assert_optimal_termination,
     units as pyunits,
 )
-from watertap.core.solvers import get_solver
+from watertap_solvers import get_solver
 from pyomo.util.calc_var_value import calculate_variable_from_constraint
 import reaktoro
 import idaes.core.util.scaling as iscale

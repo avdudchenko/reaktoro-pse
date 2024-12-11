@@ -11,6 +11,7 @@ readme = "README.md"
 dynamic = ["version"]
 dependencies = [
     "pyomo",
+    "watertap-solvers >=24.12.9",
 ]
 [project.optional-dependencies]
 testing = [

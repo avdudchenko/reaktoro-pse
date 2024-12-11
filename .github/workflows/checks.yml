@@ -105,6 +105,10 @@ jobs:
           jupyter kernelspec list
       - name: Run pytest with nbmake
         run: |
+          # watertap is needed to run the following notebooks in src/reaktoro_pse/tutorials:
+          # - basic_reaktoro_block_interaction.ipynb
+          # - integration_with_ro.ipynb
+          pip install watertap
           pytest --nbmake --nbmake-kernel="${{ env.KERNEL_NAME }}" src/reaktoro_pse/tutorials/*.ipynb
       - name: Upload coverage report as job artifact
         if: matrix.coverage

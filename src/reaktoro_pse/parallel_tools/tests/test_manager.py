@@ -24,7 +24,7 @@ from pyomo.environ import (
     assert_optimal_termination,
     units as pyunits,
 )
-from watertap.core.solvers import get_solver
+from watertap_solvers import get_solver
 
 
 def test_blockBuild_with_speciation_block(build_rkt_state_with_species):
