@@ -125,7 +125,6 @@ class AggregateSolverState:
                 scaling_array = obj()
             else:
                 scaling_array = np.hstack((scaling_array, obj()))
-        # print(scaling_array)
         return scaling_array
 
     def get_params(self, block_idx, params):
