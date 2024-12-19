@@ -123,7 +123,7 @@ def scale_model(m):
 
 def initialize(m):
     calculate_variable_from_constraint(
-        m.modified_properties_water_removal, m.eq_water_fow
+        m.modified_properties_water_removal, m.eq_water_flow
     )
     m.eq_modified_properties.initialize()
     solve(m)
