@@ -149,7 +149,7 @@ class ReaktoroInputSpec:
         """configures specification for the problem
 
         Keyword arguments:
-        dissolve_sepcies_in_rkt -- If true, species would be summed up to element amount in rkt, if false
+        dissolve_species_in_rkt-- If true, species would be summed up to element amount in rkt, if false
         mode will contain conditions to build pyomo constraints via raktorooutput class
         exact_speciation -- if True, will write exact element amount for all input species other wise
         will leave  H, and O open, while fixing aqueousSolvent to specified value (e.g. H2O)

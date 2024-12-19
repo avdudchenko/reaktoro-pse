@@ -177,7 +177,7 @@ class ReaktoroBlockData(ProcessBlockData):
         ConfigValue(
             default="Cl",
             domain=str,
-            description="Ion to use for maintaining charge neutrality (pH, ion, or element)",
+            description="How Reaktoro maintains charge neutrality (pH, ion, or element)",
             doc="""This will unfix specified ion during equilibrium calculations while enforcing charge==0 constraint
               in reaktoro, if exact speciation is provided, pH will be used by default""",
         ),

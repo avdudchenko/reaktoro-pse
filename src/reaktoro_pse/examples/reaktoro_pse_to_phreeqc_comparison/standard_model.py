@@ -60,7 +60,7 @@ def build_modification_example(water_comp):
         units=pyunits.dimensionless,
     )
     m.water_recovery.fix()
-    m.eq_water_fow = Constraint(
+    m.eq_water_flow = Constraint(
         expr=m.water_recovery
         == m.modified_properties_water_removal / m.feed_composition["H2O"]
     )
