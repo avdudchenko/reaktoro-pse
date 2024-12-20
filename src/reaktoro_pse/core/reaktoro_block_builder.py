@@ -55,6 +55,9 @@ class ReaktoroBlockBuilder:
             raise TypeError("Reaktoro block builder requires a ReaktoroSolver class")
         self.configure_jacobian_scaling()
         self.reaktoro_initialize_function = None  # used to provide external solve call
+        self.start_log_func = None  # used to provide external solve call
+        self.stop_log_func = None  # used to provide external solve call
+
         self.display_reaktoro_state_function = (
             None  # used to specifying external function to display rkt state
         )
@@ -67,6 +70,8 @@ class ReaktoroBlockBuilder:
         gray_box_model=None,
         reaktoro_initialize_function=None,
         display_reaktoro_state_function=None,
+        start_log_func=None,
+        stop_log_func=None,
     ):
         """build reaktoro model"""
         if gray_box_model is None:
@@ -81,6 +86,10 @@ class ReaktoroBlockBuilder:
             self.reaktoro_initialize_function = reaktoro_initialize_function
         if display_reaktoro_state_function is not None:
             self.display_reaktoro_state_function = display_reaktoro_state_function
+        if start_log_func is not None:
+            self.start_log_func = start_log_func
+        if stop_log_func is not None:
+            self.stop_log_func = stop_log_func
         self.build_input_constraints()
         self.build_output_constraints()
 
@@ -367,3 +376,15 @@ class ReaktoroBlockBuilder:
             print(self.solver.state)
         else:
             self.display_reaktoro_state_function()
+
+    def start_log(self):
+        if self.start_log_func is None:
+            self.solver.start_log()
+        else:
+            self.start_log_func()
+
+    def stop_log(self):
+        if self.stop_log_func is None:
+            self.solver.stop_log()
+        else:
+            self.stop_log_func()

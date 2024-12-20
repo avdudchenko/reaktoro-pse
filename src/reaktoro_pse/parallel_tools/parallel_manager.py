@@ -101,6 +101,7 @@ class RemoteWorker:
         self.state.equilibrate_state()
         jacobian, outputs = self.solver.solve_reaktoro_block(presolve=presolve)
         self.update_output_matrix(outputs, jacobian)
+        return WorkerMessages.success
 
     def solve(self):
         try:
@@ -117,13 +118,16 @@ class RemoteWorker:
     def update_output_matrix(self, outputs, jacobian):
         np.copyto(self.output_matrix, outputs)
         np.copyto(self.jacobian_matrix, jacobian)
+        return WorkerMessages.success
 
     def get_params(self):
         for i, key in enumerate(self.inputs.rkt_inputs.keys()):
             self.params[key] = self.input_matrix[2][i]
+        return WorkerMessages.success
 
     def display_state(self):
         print(self.state.state)
+        return WorkerMessages.success
 
     def check_solve(self):
         if self.old_matrix is None:
@@ -138,12 +142,22 @@ class RemoteWorker:
                 return True
             else:
                 return False
+        return WorkerMessages.success
 
     def update_inputs(self):
         for i, key in enumerate(self.inputs.rkt_inputs.keys()):
 
             self.inputs.rkt_inputs[key].value = self.input_matrix[0][i]
             self.inputs.rkt_inputs[key].converted_value = self.input_matrix[1][i]
+        return WorkerMessages.success
+
+    def start_log(self):
+        self.solver.start_log()
+        return WorkerMessages.success
+
+    def stop_log(self):
+        self.solver.stop_log()
+        return WorkerMessages.success
 
     def close_shared_memory(self):
         # clean up memory on termination
@@ -153,6 +167,7 @@ class RemoteWorker:
         self.output_reference.unlink()
         self.jacobian_reference.close()
         self.jacobian_reference.unlink()
+        return WorkerMessages.success
 
 
 class WorkerMessages:
@@ -165,6 +180,8 @@ class WorkerMessages:
     terminate = "terminate"
     failed = "failed"
     display_state = "display_state"
+    start_log = "start_log"
+    stop_log = "stop_log"
 
 
 class LocalWorker:
@@ -265,6 +282,12 @@ class LocalWorker:
     def display_state(self):
         self.local_pipe.send(WorkerMessages.display_state)
 
+    def start_log(self):
+        self.local_pipe.send(WorkerMessages.start_log)
+
+    def stop_log(self):
+        self.local_pipe.send(WorkerMessages.stop_log)
+
     def terminate(self):
         self.local_pipe.send(WorkerMessages.terminate)
         _log.info("Worker terminated")
@@ -290,6 +313,12 @@ class ReaktoroParallelManager:
 
     def get_display_function(self, block_idx):
         return self.registered_workers[block_idx].display_state
+
+    def get_log_functions(self, block_idx):
+        return (
+            self.registered_workers[block_idx].start_log,
+            self.registered_workers[block_idx].stop_log,
+        )
 
     def start_workers(self):
         for idx, local_worker in self.registered_workers.items():
@@ -331,16 +360,17 @@ def ReaktoroActor(
                 command = msg
 
             if command == WorkerMessages.update_values:
-                reaktoro_worker.update_inputs()
-                result = WorkerMessages.success
+                result = reaktoro_worker.update_inputs()
             if command == WorkerMessages.initialize:
-                reaktoro_worker.initialize(presolve=option)
-                result = WorkerMessages.success
+                result = reaktoro_worker.initialize(presolve=option)
             if command == WorkerMessages.solve:
                 result = reaktoro_worker.solve()
+            if command == WorkerMessages.start_log:
+                result = reaktoro_worker.start_log()
+            if command == WorkerMessages.stop_log:
+                result = reaktoro_worker.stop_log()
             if command == WorkerMessages.display_state:
                 result = reaktoro_worker.display_state()
-                result = WorkerMessages.success
             if command == WorkerMessages.terminate:
                 reaktoro_worker.close_shared_memory()
                 return

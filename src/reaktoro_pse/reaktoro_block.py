@@ -811,3 +811,15 @@ class ReaktoroBlockData(ProcessBlockData):
             self.speciation_block.rkt_block_builder.initialize(presolve)
         _log.info(f"---initializing property block {str(self)}----")
         self.rkt_block_builder.initialize(presolve)
+
+    def start_log(self):
+        """Start logging solving process for the blocks"""
+        if self.config.build_speciation_block:
+            self.speciation_block.rkt_block_builder.start_log()
+        self.rkt_block_builder.start_log()
+
+    def stop_log(self):
+        """Stop logging solving process for the blocks"""
+        if self.config.build_speciation_block:
+            self.speciation_block.rkt_block_builder.stop_log()
+        self.rkt_block_builder.stop_log()

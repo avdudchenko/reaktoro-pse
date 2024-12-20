@@ -63,6 +63,8 @@ class AggregateSolverState:
         self.jacobian_scaling_obj = []
         self.solver_functions = {}
         self.get_solution_function = {}
+        self.start_log = {}
+        self.stop_log = {}
         self.output_matrix = []
         self.jacobian_matrix = []
         self.input_windows = {}
@@ -77,6 +79,11 @@ class AggregateSolverState:
 
     def register_get_function(self, block_index, get_function):
         self.get_solution_function[block_index] = get_function
+
+    # def register_log_functions(self, block_index, start_log, stop_log):
+
+    #     self.start_log[block_index] = start_log
+    #     self.stop_log[block_index] = stop_log
 
     def register_input(self, block_index, input_key, input_obj):
         self.inputs.append((block_index, input_key))
@@ -320,13 +327,18 @@ class ReaktoroBlockManagerData(ProcessBlockData):
             if self.config.use_parallel_mode:
                 init_func = self.parallel_manager.get_initialize_function(block_idx)
                 disp_func = self.parallel_manager.get_display_function(block_idx)
+                start_log, stop_log = self.parallel_manager.get_log_functions(block_idx)
+
             else:
                 init_func = self.aggregate_solver_state.solver_functions[block_idx]
                 disp_func = None
+                start_log, stop_log = None, None
             block.builder.build_reaktoro_block(
                 gray_box_model=pseudo_gray_box_model,
                 reaktoro_initialize_function=init_func,
                 display_reaktoro_state_function=disp_func,
+                start_log_func=start_log,
+                stop_log_func=stop_log,
             )
             block.pseudo_gray_box = pseudo_gray_box_model
 

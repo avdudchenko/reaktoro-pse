@@ -26,6 +26,7 @@ from reaktoro_pse.core.reaktoro_jacobian import (
 )
 import cyipopt
 import idaes.logger as idaeslog
+import csv
 
 __author__ = "Alexander V. Dudchenko, Ben Knueven, Ilayda Akkor"
 
@@ -88,6 +89,8 @@ class ReaktoroSolver:
         self._max_fails = 30
         self._input_params = {}
         self.jacobian_scaling_values = None
+        self._log = False
+        self._iter = 0
 
     def export_config(self):
         export_object = ReaktoroSolverExport()
@@ -116,6 +119,25 @@ class ReaktoroSolver:
             export_object.presolve_max_iters,
             export_object.hessian_type,
         )
+
+    def start_log(self):
+        _log.info("Logging enabled")
+        self._iter = 0
+        self._log = True
+        self.create_data_file_header()
+        with open(
+            f"{str(self.block_name).replace('.','_')}.csv", "w", newline=""
+        ) as csvfile:
+            writer = csv.writer(
+                csvfile,
+                delimiter=",",
+            )
+            writer.writerow(self.header)
+
+    def stop_log(self):
+        _log.info("Logging disabled")
+        self._iter = 0
+        self._log = False
 
     def set_solver_options(
         self,
@@ -241,6 +263,7 @@ class ReaktoroSolver:
             raise cyipopt.CyIpoptEvaluationError
         else:
             self._sequential_fails = 0
+        self.log_result(params, self.outputs, self.jacobian_matrix)
         return self.jacobian_matrix, self.outputs
 
     def try_solve(self, presolve=False):
@@ -265,3 +288,28 @@ class ReaktoroSolver:
 
     def get_jacobian_scaling(self):
         return self.jacobian_scaling_values
+
+    def create_data_file_header(self):
+        self.header = ["iter(#)"]
+        for key in self.input_specs.rkt_inputs.rkt_input_list:
+            self.header.append(f"input({key})")
+        for key in list(self.output_specs.rkt_outputs.keys()):
+            self.header.append(f"output({key})")
+        # for key in list(self.output_specs.rkt_outputs.keys()):
+        #     self.header.append(f"der({key})")
+
+    def log_result(self, params, outputs, jacobian):
+        if self._log and params is not None:
+            data_row = [self._iter]
+            for key in self.input_specs.rkt_inputs.rkt_input_list:
+                data_row.append(params[key])
+            for out in outputs:
+                data_row.append(out)
+            with open(
+                f"{str(self.block_name).replace('.','_')}.csv", "a", newline=""
+            ) as csvfile:
+                writer = csv.writer(
+                    csvfile,
+                    delimiter=",",
+                )
+                writer.writerow(data_row)
