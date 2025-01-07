@@ -115,16 +115,16 @@ class AggregateSolverState:
             output_end + 1,
         )  # need to offset by 1
 
-    def register_scaling_vals(self, scaling_values):
-        self.jacobian_scaling_obj.append(scaling_values)
+    def register_scaling_vals(self, scaling_func):
+        self.jacobian_scaling_obj.append(scaling_func)
 
     def get_jacobian_scaling(self):
         scaling_array = None
         for obj in self.jacobian_scaling_obj:
             if scaling_array is None:
-                scaling_array = obj
+                scaling_array = obj()
             else:
-                np.hstack(scaling_array, obj)
+                scaling_array = np.hstack((scaling_array, obj()))
         return scaling_array
 
     def get_params(self, block_idx, params):
@@ -225,7 +225,7 @@ class ReaktoroBlockManagerData(ProcessBlockData):
     CONFIG.declare(
         "worker_timeout",
         ConfigValue(
-            default=20,
+            default=300,
             domain=int,
             description="Defines time in seconds for worker time out",
             doc="""This is time out for parallel workers to time out and shut down if they receive no 
@@ -282,6 +282,9 @@ class ReaktoroBlockManagerData(ProcessBlockData):
                 )
                 self.aggregate_solver_state.register_solve_function(
                     block_idx, solve_func
+                )
+                self.aggregate_solver_state.register_scaling_vals(
+                    block.builder.get_jacobian_scaling
                 )
                 self.aggregate_solver_state.register_get_function(block_idx, get_func)
             else:

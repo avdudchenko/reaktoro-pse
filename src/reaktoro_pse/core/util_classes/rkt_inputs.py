@@ -282,16 +282,19 @@ def specie_to_rkt_species(species):
     # TODO: needs to be better automated
     name_dict = {
         "-2": ["SO4", "CO3"],
-        "-": ["Cl", "HCO3", "F"],
+        "-": ["Cl", "HCO3", "F", "NO3"],
         "+": ["Na", "K"],
         "+2": ["Mg", "Mn", "Ca", "Sr", "Ba"],
         "": ["H2O", "CO2"],
         "H4SiO4": ["Si", "SiO2"],
+        "SeO4-2": ["Se"],
     }
     for charge, species_list in name_dict.items():
         for spc in species_list:
             if spc in species:
                 if charge == "H4SiO4":
+                    return charge
+                if charge == "SeO4-2":
                     return charge
                 else:
                     return f"{spc}{charge}"

@@ -290,7 +290,7 @@ class ReaktoroStateExport:
             self.inputs[key].input_type = obj.input_type
             self.inputs[key].value = obj.value
             self.inputs[key].converted_value = obj.converted_value
-            self.inputs.registered_phases = inputs.registered_phases
+        self.inputs.registered_phases = inputs.registered_phases
         self.inputs.all_species = inputs.all_species
         self.inputs.species_list = inputs.species_list
         self.inputs.convert_to_rkt_species = inputs.convert_to_rkt_species
@@ -788,7 +788,6 @@ class ReaktoroState:
                                     ),
                                     self.inputs[species].main_unit,
                                 )
-        # _jac_phases = [phase.name() for phase in self.state.system().phases()]
 
     def equilibrate_state(self):
         self.set_rkt_state()

@@ -140,7 +140,7 @@ def build_simple_desal(open_species=False):
 
         # However, this can result in incorrect speciation for some databases, so please use with caution.
 
-        species_to_open = ["H+", "OH-"]
+        species_to_open = ["OH-"]
     else:
         species_to_open = None
     m.eq_desal_properties = ReaktoroBlock(

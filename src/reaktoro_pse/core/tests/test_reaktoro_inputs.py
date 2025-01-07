@@ -19,7 +19,7 @@ from reaktoro_pse.core.tests.test_reaktoro_state import (
 
 import pickle
 
-__author__ = "Alexander V. Dudchenko (SLAC)"
+__author__ = "Alexander V. Dudchenko (NETL)"
 
 
 def test_with_rkt_sum(build_rkt_state_with_species):
@@ -301,10 +301,10 @@ def test_with_chemical(build_rkt_state_with_species):
     expected_con_dict = {
         "C": [(1.0, "CO3-2"), (1.0, "CO2")],
         "Na": [(1, "Na+")],
-        "Ca": [(1, "Ca+2"), (1, "CaO")],
+        "Ca": [(1, "Ca+2"), (1, "modifier_CaO")],
         "Mg": [(1, "Mg+2")],
     }
-    expected_active_species = ["CaO", "CO3-2", "CO2", "Na+", "Mg+2", "Ca+2"]
+    expected_active_species = ["modifier_CaO", "CO3-2", "CO2", "Na+", "Mg+2", "Ca+2"]
     print(rkt_input.constraint_dict)
     for ion, ecd in expected_con_dict.items():
         rkt_ecd = rkt_input.constraint_dict[ion]
@@ -331,7 +331,7 @@ def test_input_with_pickle_copy(build_rkt_state_with_species):
     lime = Var(initialize=0.01, units=pyunits.mol / pyunits.s)
     lime.construct()
 
-    rkt_input.register_chemistry_modifier("CaO", lime)
+    rkt_input.register_chemistry_modifier("modifier_CaO", lime)
     rkt_input.configure_specs(dissolve_species_in_rkt=True)
     rkt_input.build_input_specs()
     export_object = rkt_input.export_config()
@@ -344,10 +344,10 @@ def test_input_with_pickle_copy(build_rkt_state_with_species):
     expected_con_dict = {
         "C": [(1.0, "CO3-2"), (1.0, "CO2")],
         "Na": [(1, "Na+")],
-        "Ca": [(1, "Ca+2"), (1, "CaO")],
+        "Ca": [(1, "Ca+2"), (1, "modifier_CaO")],
         "Mg": [(1, "Mg+2")],
     }
-    expected_active_species = ["CaO", "CO3-2", "CO2", "Na+", "Mg+2", "Ca+2"]
+    expected_active_species = ["modifier_CaO", "CO3-2", "CO2", "Na+", "Mg+2", "Ca+2"]
     print(new_rkt_input.constraint_dict)
     for ion, ecd in expected_con_dict.items():
         rkt_ecd = new_rkt_input.constraint_dict[ion]

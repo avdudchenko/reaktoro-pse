@@ -60,9 +60,9 @@ def build_modification_example(water_comp):
         units=pyunits.dimensionless,
     )
     m.water_recovery.fix()
-    m.eq_water_fow = Constraint(
+    m.eq_water_flow = Constraint(
         expr=m.water_recovery
-        == -m.modified_properties_water_removal / m.feed_composition["H2O"]
+        == m.modified_properties_water_removal / m.feed_composition["H2O"]
     )
     return m
 
@@ -94,11 +94,11 @@ def add_standard_properties(m):
             "H2O_evaporation": m.modified_properties_water_removal,
             "NaOH": m.base_addition,
         },
-        dissolve_species_in_reaktoro=False,
+        dissolve_species_in_reaktoro=True,
         # we can use default converter as its defined for default database (Phreeqc and pitzer)
         # we are modifying state and must speciate inputs before adding acid to find final prop state.
         build_speciation_block=True,
-        reaktoro_solve_options={"open_species_on_property_block": ["H+", "OH-"]},
+        # reaktoro_solve_options={"open_species_on_property_block": ["OH-", "H2O"]},
         jacobian_options={
             "user_scaling": {
                 ("saturationIndex", "Calcite"): 1,
@@ -116,14 +116,14 @@ def scale_model(m):
         iscale.set_scaling_factor(
             m.feed_composition[key], 1 / m.feed_composition[key].value
         )
-    iscale.set_scaling_factor(m.water_recovery, 1)
+    iscale.set_scaling_factor(m.water_recovery, 1 / 1)
     iscale.set_scaling_factor(m.acid_addition, 1 / 0.001)
     iscale.set_scaling_factor(m.base_addition, 1 / 0.001)
 
 
 def initialize(m):
     calculate_variable_from_constraint(
-        m.modified_properties_water_removal, m.eq_water_fow
+        m.modified_properties_water_removal, m.eq_water_flow
     )
     m.eq_modified_properties.initialize()
     solve(m)

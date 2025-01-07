@@ -94,9 +94,10 @@ class ReaktoroInputSpec:
                 self.register_chemistry_modifier(chemical, obj)
 
     def register_chemistry_modifier(self, chemical, pyomo_var):
+        chemical = self.safe_modifier_name(chemical)
         if chemical not in self.chemical_to_elements:
             raise ValueError(
-                f"{chemical} is not avaialbe in chemical_to_element dict, please add"
+                f"{chemical} is not available in chemical_to_element dict, please add"
             )
         self.rkt_chemical_inputs[chemical] = RktInput(
             var_name=chemical, pyomo_var=pyomo_var
@@ -148,7 +149,7 @@ class ReaktoroInputSpec:
         """configures specification for the problem
 
         Keyword arguments:
-        dissolveSpeciesInRkt -- If true, species would be summed up to element amount in rkt, if false
+        dissolve_species_in_rkt-- If true, species would be summed up to element amount in rkt, if false
         mode will contain conditions to build pyomo constraints via raktorooutput class
         exact_speciation -- if True, will write exact element amount for all input species other wise
         will leave  H, and O open, while fixing aqueousSolvent to specified value (e.g. H2O)
@@ -201,30 +202,38 @@ class ReaktoroInputSpec:
                 ] = specie.elements().coefficients()[i]
         self.chemical_to_elements.update(self.specie_to_elements)
 
-    def add_specs(self, specs_object, assert_charge_neutrality, dissolveSpeciesInRkt):
+    def add_specs(
+        self, specs_object, assert_charge_neutrality, dissolve_species_in_rkt
+    ):
         # ignore elements for constraints
 
         pressure_not_set = True
         temperature_not_set = True
         for input_name, _ in self.state.inputs.items():
-            if input_name == "temperature":
+            if input_name == RktInputTypes.temperature:
                 specs_object.temperature()
                 temperature_not_set = False
-                self.rkt_inputs["temperature"] = self.state.inputs["temperature"]
-                self.rkt_inputs["temperature"].set_lower_bound(0)
-            elif input_name == "pressure":
+                self.rkt_inputs[RktInputTypes.temperature] = self.state.inputs[
+                    RktInputTypes.temperature
+                ]
+                self.rkt_inputs[RktInputTypes.temperature].set_lower_bound(0)
+            elif input_name == RktInputTypes.pressure:
                 specs_object.pressure()
                 pressure_not_set = False
-                self.rkt_inputs["pressure"] = self.state.inputs["pressure"]
-                self.rkt_inputs["pressure"].set_lower_bound(0)
-            elif input_name == "enthalpy":
+                self.rkt_inputs[RktInputTypes.pressure] = self.state.inputs[
+                    RktInputTypes.pressure
+                ]
+                self.rkt_inputs[RktInputTypes.pressure].set_lower_bound(0)
+            elif input_name == RktInputTypes.enthalpy:
                 specs_object.enthalpy()
-                self.rkt_inputs["enthalpy"] = self.state.inputs["enthalpy"]
-                self.rkt_inputs["enthalpy"].set_lower_bound(None)
-            elif input_name == "pH":
+                self.rkt_inputs[RktInputTypes.enthalpy] = self.state.inputs[
+                    RktInputTypes.enthalpy
+                ]
+                self.rkt_inputs[RktInputTypes.enthalpy].set_lower_bound(None)
+            elif input_name == RktInputTypes.pH:
                 specs_object.pH()
-                self.rkt_inputs["pH"] = self.state.inputs["pH"]
-                self.rkt_inputs["pH"].set_lower_bound(0)
+                self.rkt_inputs[RktInputTypes.pH] = self.state.inputs[RktInputTypes.pH]
+                self.rkt_inputs[RktInputTypes.pH].set_lower_bound(0)
             else:
                 pass
         if pressure_not_set:
@@ -236,15 +245,18 @@ class ReaktoroInputSpec:
         if assert_charge_neutrality:
             specs_object.charge()
             if self.neutrality_ion is not None:
-                self.ignore_elements_for_constraints.append(self.neutrality_ion)
+                if self.neutrality_ion == RktInputTypes.pH:
+                    specs_object.openTo("H+")
+                else:
+                    self.ignore_elements_for_constraints.append(self.neutrality_ion)
 
-                if self.neutrality_ion not in specs_object.namesInputs():
-                    # needs to be a species!
-                    specs_object.openTo(self.neutrality_ion)
+                    if self.neutrality_ion not in specs_object.namesInputs():
+                        # needs to be a species!
+                        specs_object.openTo(self.neutrality_ion)
 
         self._find_element_sums()
         # add/check if vars in rkt Inputs
-        if dissolveSpeciesInRkt:
+        if dissolve_species_in_rkt:
             self.write_active_species(specs_object)
         else:
             for element in self.constraint_dict:
@@ -255,7 +267,7 @@ class ReaktoroInputSpec:
 
         # write reaktoro constraints to spec
         for element in self.constraint_dict:
-            if dissolveSpeciesInRkt:
+            if dissolve_species_in_rkt:
                 self.write_element_sum_constraint(specs_object, element)
             else:
                 self.write_elementAmount_constraint(specs_object, element)
@@ -287,7 +299,6 @@ class ReaktoroInputSpec:
         self.active_species = []
         rktState = self.state.state
         if self.exact_speciation == False:
-            # self.rktActiveSpecies.append(self.aqueousSolvent)
             for phase in self.state.inputs.registered_phases:
                 if phase in self.fixed_solvent_specie:
                     specie_elements = self.specie_to_elements[
@@ -354,6 +365,7 @@ class ReaktoroInputSpec:
             input_name = f"input{specie}"
             idx = spec_object.addInput(input_name)
             if specie in self.state.inputs:
+
                 self.rkt_inputs[specie] = self.state.inputs[specie]
                 self.rkt_inputs[specie].set_rkt_index(idx)
                 self.rkt_inputs[specie].set_rkt_input_name(input_name)
@@ -371,14 +383,35 @@ class ReaktoroInputSpec:
         """defines species to element conversions"""
         self.chemical_to_elements = {
             "HCl": {"H": 1, "Cl": 1},
+            "H2SO4": {"H": 2, "S": 1, "O": 4},
             "CaO": {"Ca": 1, "O": 1},
+            "Ca(OH)2": {"Ca": 1, "O": 2, "H": 2},
             "Na2CO3": {"Na": 2, "C": 1, "O": 3},
             "CO2": {"C": 1, "O": 2},
             "NaOH": {"Na": 1, "O": 1, "H": 1},
             "H": {"H": 1},
             "OH": {"O": 1, "H": 1},
-            "H2O_evaporation": {"O": 1, "H": 2},
+            "H2O_evaporation": {"O": -1, "H": -2},
         }
+        self.ensure_safe_modifier_names()
+
+    def ensure_safe_modifier_names(self):
+        """we need to ensure any chemical has a safe subname added
+        so it does not override exact species (e.g. HCl can exist in database)"""
+        for key in list(self.chemical_to_elements.keys()):
+            self.chemical_to_elements[self.safe_modifier_name(key)] = (
+                self.chemical_to_elements.pop(key)
+            )
+
+    def safe_modifier_name(self, name):
+        """ensures we use safe modifiers that do not replicate
+        real species, e.g. exact species might contain HCl, but we might want
+        to also add HCl to system, internally we want to track it as
+        modifier_HCl it will be bound to provided pyomo var regardless"""
+        if "modifier_" not in name:
+            return f"modifier_{name}"
+        else:
+            return name
 
     def get_modifier_mw(self, elemental_composition):
         mw = 0
@@ -390,6 +423,7 @@ class ReaktoroInputSpec:
     def register_modifier(self, new_chemical):
         if new_chemical is not None:
             self.chemical_to_elements.update(new_chemical)
+        self.ensure_safe_modifier_names()
 
     def write_element_sum_constraint(self, spec_object, element):
         """writes a sum of elements constraint for reaktoro"""
@@ -458,7 +492,6 @@ class ReaktoroInputSpec:
         idx = spec_object.addInput(f"volume_{phase}")
         constraint = rkt.EquationConstraint()
         constraint.id = f"{phase}_volume_constraint"
-
         constraint.fn = lambda props, w: w[idx] - props.phaseProps(phase).volume()
         spec_object.addConstraint(constraint)
 
@@ -480,6 +513,7 @@ class ReaktoroInputSpec:
         export_object.neutrality_ion = self.neutrality_ion
         export_object.dissolve_species_in_rkt = self.dissolve_species_in_rkt
         export_object.exact_speciation = self.exact_speciation
+        export_object.chemical_to_elements = self.chemical_to_elements
         return export_object
 
     def load_from_export_object(self, export_object):
@@ -493,3 +527,4 @@ class ReaktoroInputSpec:
         self.neutrality_ion = export_object.neutrality_ion
         self.dissolve_species_in_rkt = export_object.dissolve_species_in_rkt
         self.exact_speciation = export_object.exact_speciation
+        self.chemical_to_elements = export_object.chemical_to_elements

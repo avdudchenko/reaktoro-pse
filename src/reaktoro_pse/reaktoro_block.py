@@ -177,20 +177,21 @@ class ReaktoroBlockData(ProcessBlockData):
         ConfigValue(
             default="Cl",
             domain=str,
-            description="Ion to use for maintaining charge neutrality",
-            doc="""This will unfix specified ion during equilibrium calculations while enforcing charge==0 constraint in reaktoro""",
+            description="How Reaktoro maintains charge neutrality (pH, ion, or element)",
+            doc="""This will unfix specified ion during equilibrium calculations while enforcing charge==0 constraint
+              in reaktoro, if exact speciation is provided, pH will be used by default""",
         ),
     )
     CONFIG.declare(
         "assert_charge_neutrality_on_all_blocks",
         ConfigValue(
-            default=False,
+            default=True,
             domain=bool,
-            description="Defines if charge neutrality should be applied to both speciation and property block",
+            description="Defines if charge neutrality should be applied to property_block when build_speciation_block=True",
             doc="""
             When user provides chemical inputs, its assumed that user wants to modify an equilibrated state, 
-            as such a speciation and property block will be built. Charge neutrality would only be applied on speciation block if enabled
-            if this option is set to True then charge neutrality will also be applied on property block """,
+            as such a speciation and property block will be built. The speciation block will likely require charge balancing on ion basis (e.g Cl),
+            while property block that received exact speciation will balance on pH, to disable charge balance on property block set this option to False""",
         ),
     )
 
@@ -409,9 +410,9 @@ class ReaktoroBlockData(ProcessBlockData):
         liquid_input_composition = self.config.liquid_phase.composition
         condensed_input_composition = self.config.condensed_phase.composition
         if building_prop_block_after_speciation():
-            # we need to ensure when we provide intial input compo into
-            # specitaiton block we don't have exteremely high ion concetration
-            # these value swill be overwritten during intilization anyway
+            # we need to ensure when we provide initial input compo into
+            # speciation block we don't have extremely high ion concentration
+            # these value swill be overwritten during initialization anyway
             for ion, obj in self.speciation_block.outputs.items():
                 if self.config.aqueous_phase.fixed_solvent_specie in ion:
                     obj.set_value(obj.value * 10)
@@ -567,14 +568,23 @@ class ReaktoroBlockData(ProcessBlockData):
         block.rkt_inputs.register_free_elements(self.config.aqueous_phase.free_element)
         block.rkt_inputs.register_free_elements(self.config.liquid_phase.free_element)
         # register charge neutrality
-        if (
-            speciation_block_built == False
-            or self.config.assert_charge_neutrality_on_all_blocks
-        ):
-            # only ensure charge neutrality when doing first calculation
+        # only ensure charge neutrality when doing first calculation
+        if speciation_block_built == False:
+            # if exact speciation - then charge balance should be done on pH
+            assert_charge_neutrality = self.config.assert_charge_neutrality
+            if self.config.exact_speciation == True:
+                # only do so if we have 'H+' in species
+                ion_for_balancing = "pH"
+                if "H+" not in block.rkt_state.database_species:
+                    assert_charge_neutrality = False
+
+            else:
+                assert_charge_neutrality = self.config.assert_charge_neutrality
+                ion_for_balancing = self.config.charge_neutrality_ion
+
             block.rkt_inputs.register_charge_neutrality(
-                assert_neutrality=self.config.assert_charge_neutrality,
-                ion=self.config.charge_neutrality_ion,
+                assert_neutrality=assert_charge_neutrality,
+                ion=ion_for_balancing,
             )
             block.rkt_inputs.configure_specs(
                 dissolve_species_in_rkt=self.config.dissolve_species_in_reaktoro,
@@ -582,11 +592,17 @@ class ReaktoroBlockData(ProcessBlockData):
             )
         else:
             # if we have built a speciation block, the feed should be charge neutral and
-            # exact speciation is provided
+            # exact speciation is provided, then we balance on pH only,
+            # user can disable this by setting self.assert_charge_neutrality_on_all_blocks to False
+            assert_charge_neutrality = False
+            if self.config.assert_charge_neutrality_on_all_blocks:
+                # only do so if we have 'H+' in species
+                if "H+" in block.rkt_state.database_species:
+                    assert_charge_neutrality = self.config.assert_charge_neutrality
             block.rkt_inputs.register_charge_neutrality(
-                assert_neutrality=False, ion=self.config.charge_neutrality_ion
+                assert_neutrality=assert_charge_neutrality,
+                ion="pH",
             )
-
             block.rkt_inputs.configure_specs(
                 dissolve_species_in_rkt=self.config.dissolve_species_in_reaktoro,
                 exact_speciation=True,
@@ -772,11 +788,11 @@ class ReaktoroBlockData(ProcessBlockData):
         set_on_speciation_block -- if scaling should be also set on speciation block if built.
         """
         if self.config.build_speciation_block and set_on_speciation_block:
-            self.speciation_block.rkt_block_builder.get_jacobian_scaling()
+            self.speciation_block.rkt_block_builder.set_jacobian_scaling()
             self.speciation_block.rkt_block_builder.set_user_jacobian_scaling(
                 user_scaling_dict
             )
-        self.rkt_block_builder.get_jacobian_scaling()
+        self.rkt_block_builder.set_jacobian_scaling()
         self.rkt_block_builder.set_user_jacobian_scaling(user_scaling_dict)
 
     # TODO: Update to use new initialization method https://idaes-pse.readthedocs.io/en/stable/reference_guides/initialization/developing_initializers.html?highlight=Initializer
