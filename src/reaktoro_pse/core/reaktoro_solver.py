@@ -54,6 +54,7 @@ class ReaktoroSolver:
         reaktoro_output_specs,
         reaktoro_jacobian_specs,
         block_name=None,
+        maximum_failed_solves=2,
     ):
         self.block_name = block_name
         self.state = reaktoro_state
@@ -85,7 +86,7 @@ class ReaktoroSolver:
         self.set_solver_options()
         self.set_system_bounds()
         self._sequential_fails = 0
-        self._max_fails = 30
+        self._max_fails = maximum_failed_solves
         self._input_params = {}
         self.jacobian_scaling_values = None
 

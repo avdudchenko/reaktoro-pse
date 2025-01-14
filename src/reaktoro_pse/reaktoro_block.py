@@ -260,6 +260,7 @@ class ReaktoroBlockData(ProcessBlockData):
             before doing any initialization calls, or interacting with ReaktoroBlocks themself .""",
         ),
     )
+
     CONFIG.declare("jacobian_options", JacobianOptions().get_dict())
 
     CONFIG.declare(
@@ -696,6 +697,7 @@ class ReaktoroBlockData(ProcessBlockData):
             block.rkt_outputs,
             block.rkt_jacobian,
             block_name=name,
+            maximum_failed_solves=self.config.reaktoro_solve_options.max_reaktoro_failed_solves,
         )
         block.rkt_solver.set_system_bounds(
             self.config.system_state.temperature_bounds,
