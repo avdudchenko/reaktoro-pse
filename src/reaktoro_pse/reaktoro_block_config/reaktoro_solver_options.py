@@ -35,6 +35,16 @@ class ReaktoroSolverOptions:
                 doc="""The maximum number of iterations for Reaktoro solver""",
             ),
         )
+        CONFIG.declare(
+            "max_reaktoro_failed_solves",
+            ConfigValue(
+                default=2,
+                domain=int,
+                description="Number of attempts to re-solve Reaktoro block when running inside a solver",
+                doc="""Defines number of tries Reaktoro block can fail to solve when running inside solver. When Reaktoro fails
+                it will raise CyIpoptEvaluationError, this defines how many sequential raises are allowed before terminating.""",
+            ),
+        )
         if presolve_options:
             CONFIG.declare(
                 "presolve_during_initialization",
