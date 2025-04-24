@@ -171,9 +171,9 @@ def test_activate_deactivate(build_rkt_state_with_species):
     for v in m.property_block.component_data_objects(ExternalGreyBoxModel):
         assert v.active == True
 
-    # this solve should yield no changes
+    # this solve should solve
     result = cy_solver.solve(m, tee=True)
-
+    assert_optimal_termination(result)
     assert pytest.approx(m.composition["H2O"].value, 1e-3) == 68.0601837
 
 
