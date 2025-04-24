@@ -16,10 +16,15 @@ from reaktoro_pse.reaktoro_block import ReaktoroBlock
 from pyomo.environ import (
     ConcreteModel,
     Var,
+    Constraint,
     assert_optimal_termination,
     units as pyunits,
 )
 from watertap_solvers import get_solver
+
+from pyomo.contrib.pynumero.interfaces.external_grey_box import (
+    ExternalGreyBoxModel,
+)
 
 
 @pytest.fixture
@@ -112,6 +117,63 @@ def test_blockBuild(build_rkt_state_with_species):
     result = cy_solver.solve(m, tee=True)
     assert_optimal_termination(result)
     m.display()
+    assert pytest.approx(m.composition["H2O"].value, 1e-3) == 68.0601837
+
+
+def test_activate_deactivate(build_rkt_state_with_species):
+    m = build_rkt_state_with_species
+    m.property_block = ReaktoroBlock(
+        aqueous_phase={
+            "composition": m.composition,
+            "convert_to_rkt_species": True,
+        },
+        system_state={
+            "temperature": m.temp,
+            "pressure": m.pressure,
+            "pH": m.pH,
+        },
+        database="PhreeqcDatabase",
+        database_file="pitzer.dat",
+        jacobian_options={
+            "numerical_type": "average",
+            "numerical_order": 2,
+            "numerical_step": 1e-8,
+        },
+        outputs=m.outputs,
+    )
+    m.property_block.initialize()
+    m.property_block.deactivate()
+
+    assert m.property_block.active == False
+    for v in m.property_block.component_data_objects(Constraint):
+        print(v.name)
+        assert v.active == False
+    for v in m.property_block.component_data_objects(ExternalGreyBoxModel):
+        assert v.active == False
+
+    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver.options["max_iter"] = 20
+    m.pH.fix()
+    m.composition["H2O"].unfix()
+    m.composition["H2O"].setlb(30)
+    m.outputs[("scalingTendency", "Calcite")].fix(5)
+
+    # this should fail run solve, raising value error
+    with pytest.raises(ValueError):
+        result = cy_solver.solve(m, tee=True)
+
+    assert pytest.approx(m.composition["H2O"].value, 1e-3) == 50
+    m.property_block.activate()
+    assert m.property_block.active == True
+    for v in m.property_block.component_data_objects(Constraint):
+        print(v.name)
+        assert v.active == True
+    for v in m.property_block.component_data_objects(ExternalGreyBoxModel):
+        assert v.active == True
+
+    # this solve should yield no changes
+    result = cy_solver.solve(m, tee=True)
+
     assert pytest.approx(m.composition["H2O"].value, 1e-3) == 68.0601837
 
 
