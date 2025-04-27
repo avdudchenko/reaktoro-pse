@@ -13,9 +13,10 @@
 from idaes.core.base.process_base import declare_process_block_class, ProcessBlockData
 import idaes.logger as idaeslog
 
+
 from pyomo.common.config import ConfigValue, IsInstance
 from pyomo.core.base.var import IndexedVar
-from pyomo.environ import Block
+from pyomo.environ import Block, Constraint
 
 from reaktoro_pse.core.reaktoro_state import ReaktoroState
 from reaktoro_pse.core.reaktoro_inputs import (
@@ -36,6 +37,9 @@ from reaktoro_pse.parallel_tools.reaktoro_block_manager import ReaktoroBlockMana
 from reaktoro_pse.reaktoro_block_config.jacobian_options import JacobianOptions
 from reaktoro_pse.reaktoro_block_config.reaktoro_solver_options import (
     ReaktoroSolverOptions,
+)
+from pyomo.contrib.pynumero.interfaces.external_grey_box import (
+    ExternalGreyBoxModel,
 )
 from reaktoro_pse.reaktoro_block_config.input_options import (
     PhaseInput,
@@ -813,3 +817,19 @@ class ReaktoroBlockData(ProcessBlockData):
             self.speciation_block.rkt_block_builder.initialize(presolve)
         _log.info(f"---initializing property block {str(self)}----")
         self.rkt_block_builder.initialize(presolve)
+
+    def deactivate(self):
+        """Deactivates all constraints and grayboxes"""
+        super().deactivate()
+        for v in self.component_data_objects(Constraint):
+            v.deactivate()
+        for v in self.component_data_objects(ExternalGreyBoxModel):
+            v.deactivate()
+
+    def activate(self):
+        """Activates all constraints and grayboxes"""
+        super().activate()
+        for v in self.component_data_objects(Constraint):
+            v.activate()
+        for v in self.component_data_objects(ExternalGreyBoxModel):
+            v.activate()
