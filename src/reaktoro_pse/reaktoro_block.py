@@ -851,6 +851,24 @@ class ReaktoroBlockData(ProcessBlockData):
         _log.info("-----Displaying information for property block ------")
         self.rkt_block_builder.display_state()
 
+    def update_block_scaling(self, update_on_speciation_block=True):
+        """This will update the scaling of input and output constraints on all blocks, can be
+        helpful when chemistry changes dramatically between solves.
+        Keywords:
+        update_on_speciation_block -- if scaling should be also updated on speciation block if built.
+        """
+        if self.config.build_speciation_block and update_on_speciation_block:
+            self.speciation_block.rkt_block_builder.initialize_input_variables_and_constraints(
+                use_default_scaling=False
+            )
+            self.speciation_block.rkt_block_builder.set_output_vars_and_scale(
+                use_default_scaling=False
+            )
+        self.rkt_block_builder.initialize_input_variables_and_constraints(
+            use_default_scaling=False
+        )
+        self.rkt_block_builder.set_output_vars_and_scale(use_default_scaling=False)
+
     def update_jacobian_scaling(
         self, user_scaling_dict=None, set_on_speciation_block=True
     ):

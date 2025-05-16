@@ -369,7 +369,7 @@ class ReaktoroJacobianSpec:
             self.cdf_multipliers = np.array([-1 / 2, 1 / 2])
         if order == 4:
             self.numerical_steps = np.array([-2, -1, 1, 2]) * self.der_step_size
-            self.cdf_multipliers = np.array([-1 / 12, 2 / 3, -2 / 3, 1 / 12])
+            self.cdf_multipliers = np.array([1 / 12, -2 / 3, 2 / 3, -1 / 12])
         if order == 6:
             self.numerical_steps = np.array([-3, -2, -1, 1, 2, 3]) * self.der_step_size
             self.cdf_multipliers = np.array(

@@ -13,6 +13,15 @@ from pyomo.environ import log10, log, exp
 from idaes.core.util.math import smooth_max
 
 
+def build_alkalinity_as_caco3_constraint(rkt_output_object):
+    user_output_var = rkt_output_object.pyomo_var
+    build_properties = rkt_output_object.pyomo_build_options.properties
+    return (
+        user_output_var
+        == build_properties[("alkalinity", None)].pyomo_var * 100.09 * 1000
+    )  # mg/mol * mol/L
+
+
 def build_scaling_tendency_constraint(rkt_output_object):
     user_output_var = rkt_output_object.pyomo_var
     build_properties = rkt_output_object.pyomo_build_options.properties

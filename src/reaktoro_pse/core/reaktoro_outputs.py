@@ -236,8 +236,15 @@ class PyomoProperties:
         required_props.register_property(
             PropTypes.chem_prop, "speciesActivityLn", property_index
         )
+        required_props.register_build_function(propFuncs.alkalinity_as_caco3)
+        return required_props
+
+    def alkalinityAsCaCO3(self, property_index=None):
+        """build alkalinity and convert it to CaCO3 basis"""
+        required_props = PyomoBuildOptions()
+        required_props.register_property(PropTypes.aqueous_prop, "alkalinity")
         required_props.register_build_function(
-            propFuncs.build_vapor_pressure_constraint
+            propFuncs.build_alkalinity_as_caco3_constraint
         )
         return required_props
 
@@ -306,7 +313,6 @@ class ReaktoroOutputSpec:
                 self.supported_properties[PropTypes.chem_prop],
                 None,
             )
-
         self.rkt_outputs = {}  # outputs that reaktoro needs to generate
         self.user_outputs = {}  # outputs user requests
         self.get_possible_indexes()
@@ -452,16 +458,19 @@ class ReaktoroOutputSpec:
             ]:
                 try:
                     if supported_props != PropTypes.pyomo_built_prop:
-                        func_attempt(
+                        self._func_tester(
+                            func_attempt,
                             prop,
                             property_name,
                             property_index,
                         )
                         return supported_props, func_attempt
                     else:
+
                         func_results = getattr(prop, property_name)(
                             property_index=property_index
                         )
+
                         for prop_key, obj in func_results.properties.items():
                             supported_prop, func_result = self.get_prop_type(
                                 obj.property_name, obj.property_index
@@ -472,7 +481,8 @@ class ReaktoroOutputSpec:
                         return supported_props, func_results
                 except (TypeError, KeyError, AttributeError, RuntimeError):
                     pass
-
+        if property_name == "alkalinity":
+            getattr(self.supported_properties[PropTypes.aqueous_prop], property_name)()
         raise NotImplementedError(
             f"""The {property_name}, {property_index} was not found,
                 its either not supported, or requested index is not in present.
@@ -519,10 +529,22 @@ class ReaktoroOutputSpec:
 
     #### start of possible call function to extract values from reactoro properties #####
 
+    def _func_tester(self, func, prop_type, prop_name, prop_index):
+        """test function for reaktoro properties,
+        The props can return errors due to not fully ocnfigured state, as such
+        we want to accept those props as real, only if the specify explicit runtime error
+        """
+        try:
+            value = func(prop_type, prop_name, prop_index)
+
+        except RuntimeError as error:
+
+            if "Unable to interpolate" not in str(error):
+                raise error
+
     def _get_prop_phase_name_val(self, prop_type, prop_name, prop_index):
         """get prop based on phase, used for chem_props.phaseProp"""
         value = getattr(prop_type.phaseProps(prop_index), prop_name)()
-
         return float(value)
 
     def _get_prop_name_val(self, prop_type, prop_name, prop_index=None):
