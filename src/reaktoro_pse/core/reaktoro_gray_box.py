@@ -97,7 +97,6 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
     def set_input_values(self, input_values):
         self._input_scale = self.reaktoro_solver.get_input_scaling()
         # set input values from Pyomo as inputs to External Model (required by Grey Box)
-        # self._scaled_input_values = list(np.array(input_values) * self._input_scale)
         self._input_values = list(input_values)
 
     def finalize_block_construction(self, pyomo_block):

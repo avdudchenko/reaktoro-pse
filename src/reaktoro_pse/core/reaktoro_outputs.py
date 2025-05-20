@@ -483,8 +483,6 @@ class ReaktoroOutputSpec:
                         return supported_props, func_results
                 except (TypeError, KeyError, AttributeError, RuntimeError):
                     pass
-        if property_name == "alkalinity":
-            getattr(self.supported_properties[PropTypes.aqueous_prop], property_name)()
         raise NotImplementedError(
             f"""The {property_name}, {property_index} was not found,
                 its either not supported, or requested index is not in present.
@@ -533,8 +531,8 @@ class ReaktoroOutputSpec:
 
     def _func_tester(self, func, prop_type, prop_name, prop_index):
         """test function for reaktoro properties,
-        The props can return errors due to not fully ocnfigured state, as such
-        we want to accept those props as real, only if the specify explicit runtime error
+        The props can return errors due to not fully configured state, as such
+        we want to accept those props as real, only if they specify explicit runtime error
         """
         try:
             value = func(prop_type, prop_name, prop_index)

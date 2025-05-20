@@ -130,9 +130,6 @@ class ReaktoroBlockBuilder:
 
             @self.block.Constraint(self.solver.input_specs.rkt_inputs.rkt_input_list)
             def input_constraints(fs, key):
-                # if "relaxation" in key:
-                #     return Constraint.Skip
-                # else:
                 return (
                     self.block.reaktoro_model.inputs[key]
                     == self.solver.input_specs.rkt_inputs[
@@ -165,21 +162,17 @@ class ReaktoroBlockBuilder:
 
             @self.block.Constraint(self.solver.input_specs.rkt_inputs.rkt_input_list)
             def input_constraints(fs, key):
-                if "relaxation" in key:
-                    return Constraint.Skip
+                if key in constraint_dict:
+                    return (
+                        self.block.reaktoro_model.inputs[key] == self.block.inputs[key]
+                    )
                 else:
-                    if key in constraint_dict:
-                        return (
-                            self.block.reaktoro_model.inputs[key]
-                            == self.block.inputs[key]
-                        )
-                    else:
-                        return (
-                            self.block.reaktoro_model.inputs[key]
-                            == self.solver.input_specs.user_inputs[
-                                key
-                            ].get_pyomo_with_required_units()
-                        )
+                    return (
+                        self.block.reaktoro_model.inputs[key]
+                        == self.solver.input_specs.user_inputs[
+                            key
+                        ].get_pyomo_with_required_units()
+                    )
 
     def get_specie_object(self, specie):
         """get specie object from input dicts"""

@@ -18,7 +18,6 @@ import idaes.logger as idaeslog
 from pyomo.common.config import ConfigValue, IsInstance
 from pyomo.core.base.var import IndexedVar
 from pyomo.environ import Block, Constraint, Var, units as pyunits
-from sympy import Q
 
 from reaktoro_pse.core.reaktoro_state import ReaktoroState
 from reaktoro_pse.core.reaktoro_inputs import (
