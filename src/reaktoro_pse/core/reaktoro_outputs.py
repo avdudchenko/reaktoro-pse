@@ -236,7 +236,9 @@ class PyomoProperties:
         required_props.register_property(
             PropTypes.chem_prop, "speciesActivityLn", property_index
         )
-        required_props.register_build_function(propFuncs.alkalinity_as_caco3)
+        required_props.register_build_function(
+            propFuncs.build_vapor_pressure_constraint
+        )
         return required_props
 
     def alkalinityAsCaCO3(self, property_index=None):
