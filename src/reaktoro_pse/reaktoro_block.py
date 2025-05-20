@@ -10,7 +10,6 @@
 # "https://github.com/watertap-org/reaktoro-pse/"
 #################################################################################
 
-from math import e
 from idaes.core.base.process_base import declare_process_block_class, ProcessBlockData
 import idaes.logger as idaeslog
 

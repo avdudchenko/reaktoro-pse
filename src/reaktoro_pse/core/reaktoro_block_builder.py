@@ -15,7 +15,7 @@ from pyomo.contrib.pynumero.interfaces.external_grey_box import (
 from pyomo.environ import Var, Constraint
 
 import numpy as np
-from sympy import use
+
 from reaktoro_pse.core.reaktoro_outputs import PropTypes
 
 from reaktoro_pse.core.reaktoro_solver import (

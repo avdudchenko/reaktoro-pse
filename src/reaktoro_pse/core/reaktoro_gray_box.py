@@ -9,22 +9,16 @@
 # information, respectively. These files are also available online at the URL
 # "https://github.com/watertap-org/reaktoro-pse/"
 #################################################################################
-from cycler import V
+
 import pyomo.environ as pyo
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
     ExternalGreyBoxModel,
 )
 import numpy as np
-from scipy import sparse
-from scipy.sparse import coo_matrix, tril
+from scipy.sparse import coo_matrix
 
 import copy
 import idaes.logger as idaeslog
-from sympy import N
-from pyomo.contrib.pynumero.interfaces.utils import (
-    make_lower_triangular_full,
-    CondensedSparseSummation,
-)
 
 __author__ = "Ilayda Akkor, Alexander V. Dudchenko, Paul Vecchiarelli, Ben Knueven"
 _log = idaeslog.getLogger(__name__)
