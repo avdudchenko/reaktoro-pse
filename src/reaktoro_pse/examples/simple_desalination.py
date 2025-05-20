@@ -49,22 +49,22 @@ __author__ = "Alexander V. Dudchenko"
 
 def main():
     m = build_simple_desal()
-    # m_open = build_simple_desal(True)
+    m_open = build_simple_desal(True)
     initialize(m)
     m.display()
-    # initialize(m_open)
+    initialize(m_open)
     setup_optimization(m)
-    # setup_optimization(m_open)\
+    setup_optimization(m_open)
     # assert False
     print("---result with out extra open species---")
     solve(m)
     m.eq_desal_properties.display()
-    # print("---result with open extra open species---")
-    # solve(m_open)
-    # return m, m_open
+    print("---result with open extra open species---")
+    solve(m_open)
+    return m, m_open
 
 
-def build_simple_desal(open_species=False):
+def build_simple_desal(open_species=False, parallel_mode=True):
     m = ConcreteModel()
     m.feed_composition = Var(
         ["H2O", "Mg", "Na", "Cl", "SO4", "Ca", "HCO3"],
@@ -151,7 +151,11 @@ def build_simple_desal(open_species=False):
         species_to_open = ["OH-"]
     else:
         species_to_open = None
-    m.parallel_block_manager = ReaktoroBlockManager(hessian_type="BFGS")
+
+    if parallel_mode:
+        m.parallel_block_manager = ReaktoroBlockManager()
+    else:
+        m.parallel_block_manager = None
     m.eq_desal_properties = ReaktoroBlock(
         aqueous_phase={
             "composition": m.desal_composition,
@@ -173,7 +177,8 @@ def build_simple_desal(open_species=False):
         reaktoro_block_manager=m.parallel_block_manager,
     )
     # assert False
-    m.parallel_block_manager.build_reaktoro_blocks()
+    if parallel_mode:
+        m.parallel_block_manager.build_reaktoro_blocks()
     scale_model(m)
     return m
 
