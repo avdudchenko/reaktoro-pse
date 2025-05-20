@@ -12,7 +12,7 @@
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
     ExternalGreyBoxBlock,
 )
-from pyomo.environ import Var
+from pyomo.environ import Var, Constraint
 
 import numpy as np
 from sympy import use
@@ -56,6 +56,9 @@ class ReaktoroBlockBuilder:
             raise TypeError("Reaktoro block builder requires a ReaktoroSolver class")
         self.configure_jacobian_scaling()
         self.reaktoro_initialize_function = None  # used to provide external solve call
+        self.relaxation_constraint_types = (
+            None  # used to specify relaxation constraints
+        )
         self.display_reaktoro_state_function = (
             None  # used to specifying external function to display rkt state
         )
@@ -84,6 +87,7 @@ class ReaktoroBlockBuilder:
             self.display_reaktoro_state_function = display_reaktoro_state_function
         self.build_input_constraints()
         self.build_output_constraints()
+        self.build_relaxation_constraints()
 
     def configure_jacobian_scaling(self, jacobian_scaling_type=None, user_scaling=None):
         """define scaling for jacobian, defaults to useing variable scaling
@@ -116,12 +120,19 @@ class ReaktoroBlockBuilder:
         else:
             self.user_scaling = {}
 
+    def configure_relaxation_constraints(self, constraint_types=None):
+        """configure relaxation constraints"""
+        self.relaxation_constraint_types = constraint_types
+
     def build_input_constraints(self):
 
         if self.solver.input_specs.dissolve_species_in_rkt:
 
             @self.block.Constraint(self.solver.input_specs.rkt_inputs.rkt_input_list)
             def input_constraints(fs, key):
+                # if "relaxation" in key:
+                #     return Constraint.Skip
+                # else:
                 return (
                     self.block.reaktoro_model.inputs[key]
                     == self.solver.input_specs.rkt_inputs[
@@ -143,19 +154,8 @@ class ReaktoroBlockBuilder:
             def inputs(fs, element):
                 sum_species = []
                 for mol, specie in constraint_dict[element]:
-                    if specie in self.solver.input_specs.user_inputs:
-                        pyo_obj = self.solver.input_specs.user_inputs[
-                            specie
-                        ].get_pyomo_with_required_units()
 
-                    elif specie in self.solver.input_specs.rkt_chemical_inputs:
-                        pyo_obj = self.solver.input_specs.rkt_chemical_inputs[
-                            specie
-                        ].get_pyomo_with_required_units()
-
-                    else:
-                        raise KeyError(f"specie {specie} not found in input dicts")
-                    sum_species.append(mol * pyo_obj)
+                    sum_species.append(mol * self.get_specie_object(specie))
                 return sum(sum_species)
 
             for element in constraint_dict:
@@ -165,17 +165,37 @@ class ReaktoroBlockBuilder:
 
             @self.block.Constraint(self.solver.input_specs.rkt_inputs.rkt_input_list)
             def input_constraints(fs, key):
-                if key in constraint_dict:
-                    return (
-                        self.block.reaktoro_model.inputs[key] == self.block.inputs[key]
-                    )
+                if "relaxation" in key:
+                    return Constraint.Skip
                 else:
-                    return (
-                        self.block.reaktoro_model.inputs[key]
-                        == self.solver.input_specs.user_inputs[
-                            key
-                        ].get_pyomo_with_required_units()
-                    )
+                    if key in constraint_dict:
+                        return (
+                            self.block.reaktoro_model.inputs[key]
+                            == self.block.inputs[key]
+                        )
+                    else:
+                        return (
+                            self.block.reaktoro_model.inputs[key]
+                            == self.solver.input_specs.user_inputs[
+                                key
+                            ].get_pyomo_with_required_units()
+                        )
+
+    def get_specie_object(self, specie):
+        """get specie object from input dicts"""
+        if specie in self.solver.input_specs.user_inputs:
+            pyo_obj = self.solver.input_specs.user_inputs[
+                specie
+            ].get_pyomo_with_required_units()
+
+        elif specie in self.solver.input_specs.rkt_chemical_inputs:
+            pyo_obj = self.solver.input_specs.rkt_chemical_inputs[
+                specie
+            ].get_pyomo_with_required_units()
+
+        else:
+            raise KeyError(f"specie {specie} not found in input dicts")
+        return pyo_obj
 
     def build_output_vars(self):
         new_output_vars = {}
@@ -222,15 +242,92 @@ class ReaktoroBlockBuilder:
                     == self.block.reaktoro_model.outputs[(prop, prop_index)]
                 )
 
-    def initialize(self, presolve_during_initialization=False):
-        self.initialize_input_variables_and_constraints()
+    def build_relaxation_constraints(self):
+        """build relaxation constraints"""
+        if self.relaxation_constraint_types == "total_hydrogen_link":
+            # this will build a pH relaxation constraint that sums up all H species and goign into reaktoro block
+            # and makes them equal to H amount leaving reaktoro block
+            # the pH must be left as a degree of freedom
+            total_H_amounts = []
+            for mol, specie in self.solver.input_specs.all_inclusive_constraint_dict[
+                "H"
+            ]:
+                total_H_amounts.append(mol * self.get_specie_object(specie))
+            self.block.ph_relaxation_constraint = Constraint(
+                expr=self.solver.output_specs.user_outputs[
+                    ("elementAmount", "H")
+                ].get_pyomo_var()
+                == sum(total_H_amounts)
+            )
+            total_h2o_amount = []
+            for mol, specie in self.solver.input_specs.all_inclusive_constraint_dict[
+                "O"
+            ]:
+                total_h2o_amount.append(mol * self.get_specie_object(specie))
+            self.block.h2o_relaxation_constraint = Constraint(
+                expr=sum(total_h2o_amount)
+                == self.solver.output_specs.user_outputs[
+                    ("elementAmount", "O")
+                ].get_pyomo_var()
+            )
 
+    def initialize_relaxation_outputs(self):
+        """initialize relaxation constraints"""
+        if self.relaxation_constraint_types == "total_hydrogen_link":
+            sf = (
+                self.get_sf(
+                    self.solver.output_specs.user_outputs[
+                        ("elementAmount", "H")
+                    ].get_pyomo_var(),
+                    use_default_scaling=False,
+                )
+                * 10
+            )
+            iscale.set_scaling_factor(
+                self.solver.output_specs.user_outputs[
+                    ("elementAmount", "H")
+                ].get_pyomo_var(),
+                sf,
+            )
+            iscale.constraint_scaling_transform(self.block.ph_relaxation_constraint, sf)
+
+    def initialize_relaxation_inputs(self):
+        if self.relaxation_constraint_types == "total_hydrogen_link":
+            calculate_variable_from_constraint(
+                self.solver.output_specs.user_outputs[
+                    ("elementAmount", "O")
+                ].get_pyomo_var(),
+                self.block.h2o_relaxation_constraint,
+            )
+            sf = self.get_sf(
+                self.solver.output_specs.user_outputs[
+                    ("elementAmount", "O")
+                ].get_pyomo_var(),
+                use_default_scaling=True,
+            )
+            self.block.relaxation_H2O.value = (
+                self.solver.output_specs.user_outputs[("elementAmount", "O")]
+                .get_pyomo_var()
+                .value
+            )
+            self.solver.state.inputs["H2O"].pyomo_var.value = (
+                self.block.relaxation_H2O.value
+            )
+            iscale.constraint_scaling_transform(
+                self.block.h2o_relaxation_constraint, sf
+            )
+            iscale.set_scaling_factor(self.block.relaxation_H2O, sf)
+
+    def initialize(self, presolve_during_initialization=False):
+        self.initialize_relaxation_inputs()
+        self.initialize_input_variables_and_constraints()
         if self.reaktoro_initialize_function is None:
             self.solver.state.equilibrate_state()
             self.solver.solve_reaktoro_block(presolve=presolve_during_initialization)
         else:
             self.reaktoro_initialize_function(presolve=presolve_during_initialization)
         self.initialize_output_variables_and_constraints()
+        self.initialize_relaxation_outputs()
         _log.info(f"Initialized rkt block")
 
     def get_sf(self, pyo_var, use_default_scaling, return_none=1):
@@ -327,6 +424,9 @@ class ReaktoroBlockBuilder:
     def get_jacobian_scaling(self):
         return self.solver.jacobian_scaling_values
 
+    def get_input_scaling(self):
+        return self.solver.input_scaling_values
+
     def set_user_jacobian_scaling(self, user_scaling=None):
 
         if user_scaling is None:
@@ -348,23 +448,27 @@ class ReaktoroBlockBuilder:
 
     def initialize_input_variables_and_constraints(self, use_default_scaling=True):
         """initialize input variables and constraints"""
+        self.solver.input_scaling_values = []
         for key in self.solver.input_specs.rkt_inputs.rkt_input_list:
-            pyo_var = self.solver.input_specs.rkt_inputs[key].get_pyomo_var()
-            calculate_variable_from_constraint(
-                self.block.reaktoro_model.inputs[key],
-                self.block.input_constraints[key],
-            )
+            if key in self.block.input_constraints:
+                pyo_var = self.solver.input_specs.rkt_inputs[key].get_pyomo_var()
+                calculate_variable_from_constraint(
+                    self.block.reaktoro_model.inputs[key],
+                    self.block.input_constraints[key],
+                )
 
-            sf = self.get_sf(
-                pyo_var,
-                use_default_scaling,
-                return_none=None,
-            )
+                sf = self.get_sf(
+                    pyo_var,
+                    use_default_scaling,
+                    return_none=None,
+                )
+                self.block.reaktoro_model.inputs[key].value = pyo_var.value
 
-            self.block.reaktoro_model.inputs[key].value = pyo_var.value
-
-            iscale.set_scaling_factor(self.block.reaktoro_model.inputs[key], sf)
-            iscale.constraint_scaling_transform(self.block.input_constraints[key], sf)
+                iscale.set_scaling_factor(self.block.reaktoro_model.inputs[key], sf)
+                iscale.constraint_scaling_transform(
+                    self.block.input_constraints[key], sf
+                )
+                self.solver.input_scaling_values.append(sf)
 
     def display_state(self):
         if self.display_reaktoro_state_function is None:

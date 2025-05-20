@@ -9,26 +9,40 @@
 # information, respectively. These files are also available online at the URL
 # "https://github.com/watertap-org/reaktoro-pse/"
 #################################################################################
+from cycler import V
 import pyomo.environ as pyo
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
     ExternalGreyBoxModel,
 )
 import numpy as np
+from scipy import sparse
 from scipy.sparse import coo_matrix, tril
 
 import copy
 import idaes.logger as idaeslog
+from sympy import N
+from pyomo.contrib.pynumero.interfaces.utils import (
+    make_lower_triangular_full,
+    CondensedSparseSummation,
+)
 
 __author__ = "Ilayda Akkor, Alexander V. Dudchenko, Paul Vecchiarelli, Ben Knueven"
 _log = idaeslog.getLogger(__name__)
 
 
 class HessTypes:
-    JtJ = "J.tJ"
+    GaussNewton = "GaussNewton"
     BFGS = "BFGS"
-    BFGS_mod = "BFGS-mod"
-    BFGS_damp = "BFGS-damp"
-    BFGS_ipopt = "BFGS-ipopt"
+    BFGS_mod = "BFGS_mod"
+    BFGS_damp = "BFGS_damp"
+    BFGS_ipopt = "BFGS_ipopt"
+    no_hessian = "no_hessian"
+    NoHessian = "NoHessian"
+    sparse_16 = "sparse_16"
+    diag_inv = "diag_inv"
+
+
+import idaes.core.util.scaling as iscale
 
 
 class ReaktoroGrayBox(ExternalGreyBoxModel):
@@ -60,13 +74,15 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
             self.outputs = list(reaktoro_solver.output_specs.rkt_outputs.keys())
         else:
             self.outputs = outputs
+        self._input_scale = np.ones(len(self.inputs))
         self._outputs_dual_multipliers = np.ones(len(self.outputs))
-        self._hess = np.zeros((len(self.inputs), len(self.inputs)))
         self.header_saved = False
         self.step = 0
         self.old_params = None
 
         _log.info(f"RKT gray box using {self.hess_type} hessian type")
+        if self.hess_type != HessTypes.no_hessian:
+            setattr(self, "evaluate_hessian_outputs", self._evaluate_hessian_outputs)
 
     ########################################################################################
     # standard Grey Box functions
@@ -79,7 +95,9 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
         return self.outputs
 
     def set_input_values(self, input_values):
+        self._input_scale = self.reaktoro_solver.get_input_scaling()
         # set input values from Pyomo as inputs to External Model (required by Grey Box)
+        # self._scaled_input_values = list(np.array(input_values) * self._input_scale)
         self._input_values = list(input_values)
 
     def finalize_block_construction(self, pyomo_block):
@@ -143,15 +161,26 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
         hess = s
         return hess
 
-    def hessian_bfgs(self):
-        # Cautious BFGS update implementation (Li and Fukushima)
+    def update_bfgs_matrix(self):
+        h_sum = np.zeros((len(self.inputs), len(self.inputs)))
+        for i in range(self.jacobian_matrix.shape[0]):
+            h_sum += self.H[i] * self._outputs_dual_multipliers[i]
+
+        self.x = self._input_values.copy()
+        self.del_f = self.jacobian_matrix.copy()
+        return h_sum
+
+    def create_bfgs_matrix(self):
         if not hasattr(self, "x"):
             self.x = None
         if not hasattr(self, "H"):
             self.H = []
-            H_i = np.identity(len(self.inputs))
             for i in range(self.jacobian_matrix.shape[0]):
-                self.H.append(H_i.copy())
+                self.H.append(np.identity(len(self.inputs)))
+
+    def hessian_bfgs(self):
+        # Cautious BFGS update implementation (Li and Fukushima)
+        self.create_bfgs_matrix()
         if self.x is not None:
             s_k = (np.array([self._input_values]) - self.x).T
             alpha = 1
@@ -171,25 +200,11 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
                         - (H_s @ H_s.T) / (s_k.T @ H_s)
                     )
 
-        h_sum = np.zeros((len(self.inputs), len(self.inputs)))
-        for i in range(self.jacobian_matrix.shape[0]):
-            h_sum += self._outputs_dual_multipliers[i] * self.H[i]
-
-        # print(np.linalg.cond(h_sum))
-        self.x = self._input_values
-        self.del_f = self.jacobian_matrix
-        self.hessian = h_sum
-        return self.hessian
+        return self.update_bfgs_matrix()
 
     def hessian_modified_bfgs(self):
         # Modified BFGS update implementation (Li and Fukushima)
-        if not hasattr(self, "x"):
-            self.x = None
-        if not hasattr(self, "H"):
-            self.H = []
-            H_i = np.identity(len(self.inputs))
-            for i in range(self.jacobian_matrix.shape[0]):
-                self.H.append(H_i.copy())
+        self.create_bfgs_matrix()
         if self.x is not None:
             s_k = (np.array([self._input_values]) - self.x).T
             for i in range(self.jacobian_matrix.shape[0]):
@@ -205,24 +220,11 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
                         - (H_s @ H_s.T) / (s_k.T @ H_s)
                     )
 
-        h_sum = np.zeros((len(self.inputs), len(self.inputs)))
-        for i in range(self.jacobian_matrix.shape[0]):
-            h_sum += self._outputs_dual_multipliers[i] * self.H[i]
-
-        self.x = self._input_values
-        self.del_f = self.jacobian_matrix
-        self.hessian = h_sum
-        return self.hessian
+        return self.update_bfgs_matrix()
 
     def hessian_damped_bfgs(self):
         # apply Powell's damping on the BFGS update
-        if not hasattr(self, "x"):
-            self.x = None
-        if not hasattr(self, "H"):
-            self.H = []
-            H_i = np.identity(len(self.inputs))
-            for i in range(self.jacobian_matrix.shape[0]):
-                self.H.append(H_i.copy())
+        self.create_bfgs_matrix()
         if self.x is not None:
             s_k = (np.array([self._input_values]) - self.x).T
             phi = 0.9
@@ -246,25 +248,11 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
                         self.H[i] + (z_k @ z_k.T) / (z_s) - (H_s @ H_s.T) / (s_H_s)
                     )
                 ###########################################
-        h_sum = np.zeros((len(self.inputs), len(self.inputs)))
-        for i in range(self.jacobian_matrix.shape[0]):
-            h_sum += self._outputs_dual_multipliers[i] * self.H[i]
-
-        self.x = self._input_values
-        self.del_f = self.jacobian_matrix
-        self.hessian = h_sum
-        # print(self.hessian)
-        return self.hessian
+        return self.update_bfgs_matrix()
 
     def hessian_ipopt_bfgs_modification(self):
         # BFGS update is only done on certain conditions (taken from IPOPT's implementation)
-        if not hasattr(self, "x"):
-            self.x = None
-        if not hasattr(self, "H"):
-            self.H = []
-            H_i = np.identity(len(self.inputs))
-            for i in range(self.jacobian_matrix.shape[0]):
-                self.H.append(H_i.copy())
+        self.create_bfgs_matrix()
         if self.x is not None:
             s_k = (np.array([self._input_values]) - self.x).T
             for i in range(self.jacobian_matrix.shape[0]):
@@ -281,26 +269,70 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
                         + (y_k @ y_k.T) / (y_s)
                         - (H_s @ H_s.T) / (s_k.T @ H_s)
                     )
+        return self.update_bfgs_matrix()
+
+    def hessian_diag_inv_value(self):
+        hessian = np.zeros((len(self.inputs), len(self.inputs)))
+        for idx, v in enumerate(self._input_values):
+            hessian[idx, idx] = 1.0 / v
         h_sum = np.zeros((len(self.inputs), len(self.inputs)))
         for i in range(self.jacobian_matrix.shape[0]):
-            h_sum += self._outputs_dual_multipliers[i] * self.H[i]
+            h_sum += self._outputs_dual_multipliers[i] * hessian[i]
+        return h_sum
 
-        self.x = self._input_values
-        self.del_f = self.jacobian_matrix
-        self.hessian = h_sum
-        return self.hessian
+    def _evaluate_hessian_outputs(self):
+        if self.hess_type == HessTypes.NoHessian:
+            hessian_matrix = _sparse_diagonal(len(self.inputs), 0)
+        elif self.hess_type == HessTypes.sparse_16:
+            hessian_matrix = _sparse_diagonal(len(self.inputs), 1e-16)
+        elif self.hess_type == HessTypes.GaussNewton:
+            hessian_matrix = self.hessian_gauss_newton_version(sparse_jac=False)
+        elif self.hess_type == HessTypes.BFGS:
+            hessian_matrix = self.hessian_bfgs()
+        elif self.hess_type == HessTypes.BFGS_mod:
+            hessian_matrix = self.hessian_modified_bfgs()
+        elif self.hess_type == HessTypes.BFGS_damp:
+            hessian_matrix = self.hessian_damped_bfgs()
+        elif self.hess_type == HessTypes.BFGS_ipopt:
+            hessian_matrix = self.hessian_ipopt_bfgs_modification()
+        elif self.hess_type == HessTypes.diag_inv:
+            hessian_matrix = self.hessian_diag_inv_value()
+        else:
+            raise RuntimeError(
+                f"Hessian type {self.hess_type} not implemented in ReaktoroGrayBox"
+            )
+        if isinstance(hessian_matrix, coo_matrix):
+            return hessian_matrix
+        else:
+            low_triangular_hessian = _hand_tril(np.array(hessian_matrix))
+            return low_triangular_hessian
 
-    def evaluate_hessian_outputs(self):
-        if self.hess_type == HessTypes.JtJ:
-            self._hess = self.hessian_gauss_newton_version(sparse_jac=False)
-        if self.hess_type == HessTypes.BFGS:
-            self._hess = self.hessian_bfgs()
-        if self.hess_type == HessTypes.BFGS_mod:
-            self._hess = self.hessian_modified_bfgs()
-        if self.hess_type == HessTypes.BFGS_damp:
-            self._hess = self.hessian_damped_bfgs()
-        if self.hess_type == HessTypes.BFGS_ipopt:
-            self._hess = self.hessian_ipopt_bfgs_modification()
-        jm = np.array(self._hess)
-        cm = tril(jm)
-        return cm
+
+def _hand_tril(jm):
+    assert jm.shape[0] == jm.shape[1]
+    shape = jm.shape[0]
+    row = []
+    col = []
+    val = []
+
+    for i in range(shape):
+        for j in range(i + 1):
+            row.append(i)
+            col.append(j)
+            v = jm[i, j]
+
+            val.append(v)
+
+    return coo_matrix((val, (row, col)), shape=(shape, shape))
+
+
+def _sparse_diagonal(shape, value=1e-16):
+    rows = []
+    cols = []
+    vals = []
+    for i in range(shape):
+        rows.append(i)
+        cols.append(i)
+        vals.append(value)
+
+    return coo_matrix((vals, (rows, cols)), shape=(shape, shape))

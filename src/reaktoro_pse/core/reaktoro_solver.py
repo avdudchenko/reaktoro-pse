@@ -75,8 +75,8 @@ class ReaktoroSolver:
         existing_constraints = self.input_specs.equilibrium_specs.namesConstraints()
 
         existing_variables = self.input_specs.equilibrium_specs.namesControlVariables()
-        _log.debug(f"rktSolver inputs: {existing_variables}")
-        _log.debug(f"rktSolver constraints: {existing_constraints}")
+        _log.info(f"rktSolver inputs: {existing_variables}")
+        _log.info(f"rktSolver constraints: {existing_constraints}")
         self.solver = rkt.EquilibriumSolver(self.input_specs.equilibrium_specs)
         self.conditions = rkt.EquilibriumConditions(self.input_specs.equilibrium_specs)
 
@@ -88,6 +88,7 @@ class ReaktoroSolver:
         self._sequential_fails = 0
         self._max_fails = maximum_failed_solves
         self._input_params = {}
+        self._old_input_params = {}
         self.jacobian_scaling_values = None
 
     def export_config(self):
@@ -141,7 +142,6 @@ class ReaktoroSolver:
         self.solver_options.epsilon = epsilon
         self.solver_options.optima.maxiters = max_iters
         self.solver_options.optima.convergence.tolerance = tolerance
-
         self.presolve_options.epsilon = presolve_epsilon
         self.presolve_options.optima.maxiters = presolve_max_iters
         self.presolve_options.optima.convergence.tolerance = presolve_tolerance
@@ -177,9 +177,9 @@ class ReaktoroSolver:
             else:
                 value = params.get(input_key)
                 input_obj.set_temp_value(value)
-
             unit = input_obj.main_unit
             self._input_params[input_key] = value
+
             if input_key == RktInputTypes.temperature:
                 self.conditions.temperature(value, unit)
             elif input_key == RktInputTypes.pressure:
@@ -233,7 +233,11 @@ class ReaktoroSolver:
             )
             _log.warning("----inputs were -----")
             for key, value in self._input_params.items():
-                _log.warning(f"{key}: {value}")
+                _log.warning(
+                    f"{key}: {value}, prior input was: {self._old_input_params.get(key,None)}, delta: {value - self._old_input_params.get(key,0)}"
+                )
+            # print(self.state.state.props())
+            # print(rkt.AqueousProps(self.state.state.props()))
             self._sequential_fails += 1
             if self._sequential_fails > self._max_fails:
                 raise RuntimeError(
@@ -262,7 +266,13 @@ class ReaktoroSolver:
             self.conditions,
         )
         self.output_specs.update_supported_props()
+        if result.succeeded():
+            for input_key, value in self._input_params.items():
+                self._old_input_params[input_key] = value
         return result
 
     def get_jacobian_scaling(self):
         return self.jacobian_scaling_values
+
+    def get_input_scaling(self):
+        return self.input_scaling_values

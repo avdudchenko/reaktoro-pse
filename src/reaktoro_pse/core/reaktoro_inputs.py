@@ -28,6 +28,7 @@ class ReaktoroInputExport:
         self.ignore_elements_for_constraints = []
         self.fixed_solvent_specie = {}
         self.fixed_solvent_speciation = {}
+        self.fixed_solvent_type = {}
         self.rkt_chemical_inputs = None
         self.assert_charge_neutrality = None
         self.neutrality_ion = None
@@ -67,13 +68,14 @@ class ReaktoroInputSpec:
         self.state = reaktor_state
         if isinstance(self.state, ReaktoroState) == False:
             raise TypeError("Reator inputs require rektoroState class")
-        self.user_inputs = reaktor_state.inputs  # user iputs provided to state
+        self.user_inputs = reaktor_state.inputs  # user inputs provided to state
         self.rkt_inputs = RktInputs()  # inputs that will be fed to rkt spec
         self.rkt_chemical_inputs = RktInputs()
         # tracking which elements to not include in summation constraints
         self.ignore_elements_for_constraints = []
         self.fixed_solvent_specie = {}
         self.fixed_solvent_speciation = {}
+        self.fixed_solvent_type = {}
         # execute default configuration options, user can update settings
         self.register_charge_neutrality()
         self.default_speciation()
@@ -119,19 +121,21 @@ class ReaktoroInputSpec:
                 self.empty_constraints = specie
             for spc in specie:
                 _log.warning(
-                    f"Registered an empty constraint for {self.empty_constraints}, this can lead to unexpected results depending on reaktoro configuration, please use with caution"
+                    f"Registered an empty constraint for {spc}, this can lead to unexpected results depending on reaktoro configuration, please use with caution"
                 )
 
     def register_charge_neutrality(self, assert_neutrality=True, ion="Cl"):
         self.assert_charge_neutrality = assert_neutrality
         self.neutrality_ion = ion
 
-    def register_fixed_solvent_specie(self, phase, specie):
+    def register_fixed_solvent_specie(self, phase, specie, solvent_name=None):
         """defines aqueous species for system - used to set species when speciating - H/O change based on
         system speciation, so if we want to specify pH, we need to allow system to find eq. H/O and fix
         H2O"""
         self.fixed_solvent_specie[phase] = specie
         self.fixed_solvent_speciation[phase] = {}
+        if solvent_name is not None:
+            self.fixed_solvent_type[specie] = solvent_name
 
     def register_free_elements(self, elements):
         if elements is not None:
@@ -150,7 +154,7 @@ class ReaktoroInputSpec:
 
         Keyword arguments:
         dissolve_species_in_rkt-- If true, species would be summed up to element amount in rkt, if false
-        mode will contain conditions to build pyomo constraints via raktorooutput class
+        mode will contain conditions to build pyomo constraints via raktoro output class
         exact_speciation -- if True, will write exact element amount for all input species other wise
         will leave  H, and O open, while fixing aqueousSolvent to specified value (e.g. H2O)
 
@@ -168,6 +172,9 @@ class ReaktoroInputSpec:
             self.dissolve_species_in_rkt,
         )
         # get input name order!
+        self.register_jacobian_indexes()
+
+    def register_jacobian_indexes(self):
         for idx, spec in enumerate(self.equilibrium_specs.namesInputs()):
             if spec == "T":
                 spec_var_name = RktInputTypes.temperature
@@ -189,7 +196,7 @@ class ReaktoroInputSpec:
 
     def breakdown_species_to_elements(self):
         """this will take all species in rktstate and create a dictionary containing
-        thier elemnts and species amounts for use in summing
+        their elements and species amounts for use in summing
         eg. {'H2O':{'H':2,'O':1}}"""
 
         # TODO: probably want to make a class to track this
@@ -247,6 +254,8 @@ class ReaktoroInputSpec:
             if self.neutrality_ion is not None:
                 if self.neutrality_ion == RktInputTypes.pH:
                     specs_object.openTo("H+")
+                elif self.neutrality_ion == RktInputTypes.pOH:
+                    specs_object.openTo("OH-")
                 else:
                     self.ignore_elements_for_constraints.append(self.neutrality_ion)
 
@@ -271,22 +280,42 @@ class ReaktoroInputSpec:
                 self.write_element_sum_constraint(specs_object, element)
             else:
                 self.write_elementAmount_constraint(specs_object, element)
-        if self.exact_speciation == False:
-            for phase in self.state.inputs.registered_phases:
-                if phase in self.fixed_solvent_specie:
+        if self.exact_speciation == False or self.fixed_solvent_type != {}:
+            self.add_solvent_constraints(specs_object)
 
-                    specie = self.state.inputs.convert_rkt_species_fun(
-                        self.fixed_solvent_specie[phase], phase
-                    )
-                    self.write_speciesAmount_constraint(specs_object, specie)
-                    if self.fixed_solvent_specie[phase] not in self.rkt_inputs:
-                        self.rkt_inputs[specie] = self.state.inputs[
-                            self.fixed_solvent_specie[phase]
-                        ]
-                        self.rkt_inputs[specie].set_rkt_input_name(specie)
-                        self.rkt_inputs[specie].set_lower_bound(0)
-            self.write_open_solvent_constraints(specs_object)
         self.write_empty_constraints(specs_object)
+
+    def add_solvent_constraints(self, specs_object):
+        """adds constraints for fixed solvent species
+        args:
+        specs_object -- reaktoro spec object
+        auto_register -- if True, will add the fixed solvent species to the rkt_inputs
+        """
+        for phase in self.state.inputs.registered_phases:
+            if phase in self.fixed_solvent_specie:
+                specie = self.state.inputs.convert_rkt_species_fun(
+                    self.fixed_solvent_specie[phase], phase
+                )
+                if self.fixed_solvent_type == {}:
+                    spc_name = specie
+                else:
+                    spc_name = self.fixed_solvent_type[specie]
+                self.write_speciesAmount_constraint(
+                    specs_object, specie, input_name=spc_name
+                )
+                if spc_name not in self.rkt_inputs and spc_name in self.state.inputs:
+                    self.rkt_inputs[spc_name] = self.state.inputs[spc_name]
+                    self.rkt_inputs[spc_name].set_rkt_input_name(spc_name)
+                    self.rkt_inputs[spc_name].set_lower_bound(0)
+                    self.rkt_inputs.rkt_input_list.append(spc_name)
+        self.write_open_solvent_constraints(specs_object)
+
+    def update_constraint_dict(self, element, specie, coeff):
+        if element not in self.ignore_elements_for_constraints:
+            self.constraint_dict[element].append((coeff, specie))
+            if specie not in self.active_species:
+                self.active_species.append(specie)
+        self.all_inclusive_constraint_dict[element].append((coeff, specie))
 
     def _find_element_sums(self):
         """
@@ -296,6 +325,8 @@ class ReaktoroInputSpec:
         respective coefficients"""
         # TODO: Should add some sort of way to check if all species were accounted for!
         self.constraint_dict = {}
+        self.all_inclusive_constraint_dict = {}
+
         self.active_species = []
         rktState = self.state.state
         if self.exact_speciation == False:
@@ -317,66 +348,67 @@ class ReaktoroInputSpec:
         # loop over all elements in the rkt system
         for element in self.rkt_elements:
             # skip any we want to ignore
-            if element not in self.ignore_elements_for_constraints:
-                self.constraint_dict[element] = []
-                # if user provided true elements as inputs, we just add them as 1:1
-                # constraints
-                for phase in self.state.inputs.registered_phases:
-                    if self.state.inputs.composition_is_elements[phase]:
-                        self.constraint_dict[element].append((1, element))
-                        if element not in self.active_species:
-                            self.active_species.append(element)
-                    else:
-                        # otherwise find break down of provided species to elements
-                        for specie in self.state.inputs.species_list[phase]:
-                            # check if specie is in list of rkt species
-                            spc_dict = self.specie_to_elements.get(specie)
-                            # might be empty as specie might not exist, thats okay
-                            if spc_dict is not None:
-                                coef = spc_dict.get(element)
-                                # checks if element is in the actual species, might not exists and thats okay
-                                # example C might not be in "H2O"
-                                if coef is not None:
-                                    self.constraint_dict[element].append((coef, specie))
-                                    if specie not in self.active_species:
-                                        self.active_species.append(specie)
-                # now lets also check if user provided chemical inputs and
-                # add them to our elemental sum constraints (e.g. H = H(from H2O) + H (from HCL))
-                for specie in self.rkt_chemical_inputs.keys():
-                    # if specie is a element add directly
-                    if specie == element:
-                        self.constraint_dict[element].append((1, specie))
-                        if specie not in self.active_species:
-                            self.active_species.append(specie)
-                    # if not then find species and add their coefficients
-                    elif specie in self.chemical_to_elements:
-                        coef = self.chemical_to_elements[specie].get(element)
-                        if coef is not None:
-                            self.constraint_dict[element].append((coef, specie))
-                            if specie not in self.active_species:
-                                self.active_species.append(specie)
-                # make sure we did not create empty element lists
-                if len(self.constraint_dict[element]) == 0:
-                    del self.constraint_dict[element]
+            # if element not in self.ignore_elements_for_constraints:
+            self.constraint_dict[element] = []
+            self.all_inclusive_constraint_dict[element] = []
+            # if user provided true elements as inputs, we just add them as 1:1
+            # constraints
+            for phase in self.state.inputs.registered_phases:
+                if self.state.inputs.composition_is_elements[phase]:
+                    self.update_constraint_dict(element, element, 1)
+                else:
+                    # otherwise find break down of provided species to elements
+                    for specie in self.state.inputs.species_list[phase]:
+                        # check if specie is in list of rkt species
+                        spc_dict = self.specie_to_elements.get(specie)
+                        # might be empty as specie might not exist, thats okay
+                        if spc_dict is not None:
+                            coef = spc_dict.get(element)
+                            # checks if element is in the actual species, might not exists and thats okay
+                            # example C might not be in "H2O"
+                            if coef is not None:
+                                self.update_constraint_dict(element, specie, coef)
+            # now lets also check if user provided chemical inputs and
+            # add them to our elemental sum constraints (e.g. H = H(from H2O) + H (from HCL))
+            for specie in self.rkt_chemical_inputs.keys():
+                # if specie is a element add directly
+                if specie == element:
+                    self.update_constraint_dict(element, specie, 1)
+                # if not then find species and add their coefficients
+                elif specie in self.chemical_to_elements:
+                    coef = self.chemical_to_elements[specie].get(element)
+                    if coef is not None:
+                        self.update_constraint_dict(element, specie, coef)
+            # make sure we did not create empty element lists
+            if len(self.constraint_dict[element]) == 0:
+                del self.constraint_dict[element]
+            if len(self.all_inclusive_constraint_dict[element]) == 0:
+                del self.all_inclusive_constraint_dict[element]
 
     def write_active_species(self, spec_object):
         # build inputs into rkt model, and track their indexes for writing rkt constraints
         for specie in self.active_species:
-            input_name = f"input{specie}"
-            idx = spec_object.addInput(input_name)
-            if specie in self.state.inputs:
+            self.register_input_species(spec_object, specie)
 
-                self.rkt_inputs[specie] = self.state.inputs[specie]
-                self.rkt_inputs[specie].set_rkt_index(idx)
-                self.rkt_inputs[specie].set_rkt_input_name(input_name)
-                self.rkt_inputs[specie].set_lower_bound(0)
-            elif specie in self.rkt_chemical_inputs:
-                self.rkt_inputs[specie] = self.rkt_chemical_inputs[specie]
-                self.rkt_inputs[specie].set_rkt_index(idx)
-                self.rkt_inputs[specie].set_rkt_input_name(input_name)
-                self.rkt_inputs[specie].set_lower_bound(0)
-            else:
-                raise KeyError(f"Specie is not found {specie}")
+    def register_input_species(self, spec_object, specie):
+        input_name = f"input{specie}"
+        idx = spec_object.addInput(input_name)
+        if specie in self.state.inputs:
+            self.rkt_inputs[specie] = self.state.inputs[specie]
+            self.rkt_inputs[specie].set_rkt_index(idx)
+            self.rkt_inputs[specie].set_rkt_input_name(input_name)
+            self.rkt_inputs[specie].set_lower_bound(0)
+        elif specie in self.rkt_chemical_inputs:
+            self.rkt_inputs[specie] = self.rkt_chemical_inputs[specie]
+            self.rkt_inputs[specie].set_rkt_index(idx)
+            self.rkt_inputs[specie].set_rkt_input_name(input_name)
+            self.rkt_inputs[specie].set_lower_bound(0)
+        elif specie in self.rkt_inputs:
+            self.rkt_inputs[specie].set_rkt_index(idx)
+            self.rkt_inputs[specie].set_rkt_input_name(input_name)
+            self.rkt_inputs[specie].set_lower_bound(0)
+        else:
+            raise KeyError(f"Specie is not found {specie}")
 
     def default_speciation(self):
         # TODO: probably want to make a class to track this stuff
@@ -434,12 +466,13 @@ class ReaktoroInputSpec:
             (cv[0], self.rkt_inputs[cv[1]].get_rkt_index())
             for cv in self.constraint_dict[element]
         ]
+
         spec_object.openTo(element)
         constraint = rkt.EquationConstraint()
         constraint.id = f"{element}_constraint"
-        constraint.fn = lambda props, w: sum(
+        constraint.fn = lambda props, w: props.elementAmount(element) - sum(
             [mol * w[idx] for (mol, idx) in species_list]
-        ) - props.elementAmount(element)
+        )
         spec_object.addConstraint(constraint)
 
     def write_elementAmount_constraint(self, spec_object, element):
@@ -448,7 +481,9 @@ class ReaktoroInputSpec:
         idx = spec_object.addInput(f"input{element}")
         constraint = rkt.EquationConstraint()
         constraint.id = f"{element}_constraint"
-        constraint.fn = lambda props, w: w[idx] - props.elementAmount(element)
+        constraint.fn = (
+            lambda props, w: props.elementAmount(element) - w[idx]
+        )  # - props.elementAmount(element)
         spec_object.addConstraint(constraint)
 
     def write_elementAmountInPhase_constraint(self, spec_object, element, phase):
@@ -457,18 +492,22 @@ class ReaktoroInputSpec:
         idx = spec_object.addInput(element)
         constraint = rkt.EquationConstraint()
         constraint.id = f"{element}_constraint"
-        constraint.fn = lambda props, w: w[idx] - props.elementAmountInPhase(
-            element, phase
+        constraint.fn = (
+            lambda props, w: props.elementAmountInPhase(element, phase) - w[idx]
         )
+
         spec_object.addConstraint(constraint)
 
-    def write_speciesAmount_constraint(self, spec_object, species):
+    def write_speciesAmount_constraint(self, spec_object, species, input_name=None):
         """writes a elements amount constraint for reaktoro"""
         spec_object.openTo(species)
-        idx = spec_object.addInput(species)
+        if input_name is None:
+            idx = spec_object.addInput(species)
+        else:
+            idx = spec_object.addInput(input_name)
         constraint = rkt.EquationConstraint()
         constraint.id = f"{species}_constraint"
-        constraint.fn = lambda props, w: w[idx] - props.speciesAmount(species)
+        constraint.fn = lambda props, w: props.speciesAmount(species) - w[idx]
         spec_object.addConstraint(constraint)
 
     def write_empty_con(self, spec_object, spc):
@@ -514,6 +553,8 @@ class ReaktoroInputSpec:
         export_object.dissolve_species_in_rkt = self.dissolve_species_in_rkt
         export_object.exact_speciation = self.exact_speciation
         export_object.chemical_to_elements = self.chemical_to_elements
+        export_object.fixed_solvent_type = self.fixed_solvent_type
+        export_object.empty_constraints = self.empty_constraints
         return export_object
 
     def load_from_export_object(self, export_object):
@@ -522,9 +563,11 @@ class ReaktoroInputSpec:
         )
         self.fixed_solvent_specie = export_object.fixed_solvent_specie
         self.fixed_solvent_speciation = export_object.fixed_solvent_speciation
+        self.fixed_solvent_type = export_object.fixed_solvent_type
         self.rkt_chemical_inputs = export_object.rkt_chemical_inputs
         self.assert_charge_neutrality = export_object.assert_charge_neutrality
         self.neutrality_ion = export_object.neutrality_ion
         self.dissolve_species_in_rkt = export_object.dissolve_species_in_rkt
         self.exact_speciation = export_object.exact_speciation
         self.chemical_to_elements = export_object.chemical_to_elements
+        self.empty_constraints = export_object.empty_constraints

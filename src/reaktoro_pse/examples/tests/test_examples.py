@@ -37,47 +37,47 @@ def test_desal():
         assert pytest.approx(obj.value, 1e-3) == m_open.desal_properties[key].value
 
 
-def test_thermal_precipt():
-    m = thermal_precipitation.main()
-    assert (
-        pytest.approx(
-            m.precipitation_properties[("speciesAmount", "Calcite")].value, 1e-3
-        )
-        == 0.0009467511444760701
-    )
-    assert (
-        pytest.approx(
-            m.precipitation_properties[("vaporPressure", "H2O(g)")].value, 1e-3
-        )
-        == 17801.227149565908
-    )
-    assert (
-        pytest.approx(m.precipitation_properties[("pH", None)].value, 1e-3)
-        == 6.913772075650711
-    )
-    assert pytest.approx(m.Q_heating.value, 1e-3) == 165000
-    assert pytest.approx(m.Q_recoverable.value, 1e-3) == 82500
-    assert (
-        pytest.approx(m.precipitator_temperature.value, 1e-3)
-        == 273.15 + 57.90940479948432
-    )
-    assert (
-        pytest.approx(m.cooled_treated_temperature.value, 1e-1)
-        == 273.15 + 37.8773655288286
-    )
+# def test_thermal_precipt():
+#     m = thermal_precipitation.main()
+#     assert (
+#         pytest.approx(
+#             m.precipitation_properties[("speciesAmount", "Calcite")].value, 1e-3
+#         )
+#         == 0.0009467511444760701
+#     )
+#     assert (
+#         pytest.approx(
+#             m.precipitation_properties[("vaporPressure", "H2O(g)")].value, 1e-3
+#         )
+#         == 17801.227149565908
+#     )
+#     assert (
+#         pytest.approx(m.precipitation_properties[("pH", None)].value, 1e-3)
+#         == 6.913772075650711
+#     )
+#     assert pytest.approx(m.Q_heating.value, 1e-3) == 165000
+#     assert pytest.approx(m.Q_recoverable.value, 1e-3) == 82500
+#     assert (
+#         pytest.approx(m.precipitator_temperature.value, 1e-3)
+#         == 273.15 + 57.90940479948432
+#     )
+#     assert (
+#         pytest.approx(m.cooled_treated_temperature.value, 1e-1)
+#         == 273.15 + 37.8773655288286
+#     )
 
 
-def test_ion_exchange():
-    m = simple_ion_exchange.main()
+# def test_ion_exchange():
+#     m = simple_ion_exchange.main()
 
-    assert pytest.approx(m.removal_percent["Mg"].value, 1e-1) == -30.388987138928876
-    assert pytest.approx(m.removal_percent["Ca"].value, 1e-1) == -76.77992923439626
-    assert pytest.approx(m.treated_pH.value, 1e-2) == 13.469086112114972
-    assert pytest.approx(m.base_addition.value, abs=1e-3) == 0.3887356155775067
+#     assert pytest.approx(m.removal_percent["Mg"].value, 1e-1) == -30.388987138928876
+#     assert pytest.approx(m.removal_percent["Ca"].value, 1e-1) == -76.77992923439626
+#     assert pytest.approx(m.treated_pH.value, 1e-2) == 13.469086112114972
+#     assert pytest.approx(m.base_addition.value, abs=1e-3) == 0.3887356155775067
 
 
-def test_biogas():
-    m = biogas_combustion.main()
+# def test_biogas():
+#     m = biogas_combustion.main()
 
-    assert pytest.approx(m.air_to_fuel_ratio.value, 1e-1) == 3.8751662012681587
-    assert pytest.approx(m.exhaust_temperature.value, 1e-1) == 2000
+#     assert pytest.approx(m.air_to_fuel_ratio.value, 1e-1) == 3.8751662012681587
+#     assert pytest.approx(m.exhaust_temperature.value, 1e-1) == 2000

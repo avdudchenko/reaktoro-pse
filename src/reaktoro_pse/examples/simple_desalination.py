@@ -9,6 +9,7 @@
 # information, respectively. These files are also available online at the URL
 # "https://github.com/watertap-org/reaktoro-pse/"
 #################################################################################
+from reaktoro_pse.parallel_tools import reaktoro_block_manager
 from reaktoro_pse.reaktoro_block import ReaktoroBlock
 
 from pyomo.environ import (
@@ -24,7 +25,11 @@ from pyomo.util.calc_var_value import calculate_variable_from_constraint
 
 import idaes.core.util.scaling as iscale
 
+from reaktoro_pse.parallel_tools.reaktoro_block_manager import (
+    ReaktoroBlockManager,
+)
 
+from idaes.core.util.model_statistics import degrees_of_freedom
 import reaktoro as rkt
 
 __author__ = "Alexander V. Dudchenko"
@@ -44,16 +49,19 @@ __author__ = "Alexander V. Dudchenko"
 
 def main():
     m = build_simple_desal()
-    m_open = build_simple_desal(True)
+    # m_open = build_simple_desal(True)
     initialize(m)
-    initialize(m_open)
+    m.display()
+    # initialize(m_open)
     setup_optimization(m)
-    setup_optimization(m_open)
+    # setup_optimization(m_open)\
+    # assert False
     print("---result with out extra open species---")
     solve(m)
-    print("---result with open extra open species---")
-    solve(m_open)
-    return m, m_open
+    m.eq_desal_properties.display()
+    # print("---result with open extra open species---")
+    # solve(m_open)
+    # return m, m_open
 
 
 def build_simple_desal(open_species=False):
@@ -143,11 +151,12 @@ def build_simple_desal(open_species=False):
         species_to_open = ["OH-"]
     else:
         species_to_open = None
+    m.parallel_block_manager = ReaktoroBlockManager(hessian_type="BFGS")
     m.eq_desal_properties = ReaktoroBlock(
         aqueous_phase={
             "composition": m.desal_composition,
             "convert_to_rkt_species": True,
-            "activity_model": rkt.ActivityModelPitzer(),
+            "activity_model": "ActivityModelPitzer",
         },
         system_state={
             "temperature": m.feed_temperature,
@@ -161,7 +170,10 @@ def build_simple_desal(open_species=False):
         # we are modifying state and must speciate inputs before adding acid to find final prop state.
         build_speciation_block=True,
         reaktoro_solve_options={"open_species_on_property_block": species_to_open},
+        reaktoro_block_manager=m.parallel_block_manager,
     )
+    # assert False
+    m.parallel_block_manager.build_reaktoro_blocks()
     scale_model(m)
     return m
 
@@ -185,6 +197,7 @@ def initialize(m):
             m.desal_composition[key], m.eq_desal_composition[key]
         )
     m.eq_desal_properties.initialize()
+
     solve(m)
 
 
@@ -206,7 +219,7 @@ def display_results(m):
 
 def solve(m):
     cy_solver = get_solver(solver="cyipopt-watertap")
-    # cy_solver.options["max_iter"] = 200
+    cy_solver.options["max_iter"] = 300
     # only enable if avaialbe !
     # cy_solver.options["linear_solver"] = "ma27"
     result = cy_solver.solve(m, tee=True)

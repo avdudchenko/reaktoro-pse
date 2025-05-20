@@ -149,7 +149,7 @@ class PyomoProperties:
         self.aqueous_props = aqueous_props
 
     def scalingTendency(self, property_index):
-        """build scaling tendencty - RKT has saturationIndex but no scalingIndex"""
+        """build scaling tendency - RKT has saturationIndex but no scalingIndex"""
         required_props = PyomoBuildOptions()
         required_props.register_property(
             PropTypes.aqueous_prop, "saturationIndex", property_index

@@ -10,13 +10,15 @@
 # "https://github.com/watertap-org/reaktoro-pse/"
 #################################################################################
 
+from math import e
 from idaes.core.base.process_base import declare_process_block_class, ProcessBlockData
 import idaes.logger as idaeslog
 
 
 from pyomo.common.config import ConfigValue, IsInstance
 from pyomo.core.base.var import IndexedVar
-from pyomo.environ import Block, Constraint
+from pyomo.environ import Block, Constraint, Var, units as pyunits
+from sympy import Q
 
 from reaktoro_pse.core.reaktoro_state import ReaktoroState
 from reaktoro_pse.core.reaktoro_inputs import (
@@ -207,6 +209,22 @@ class ReaktoroBlockData(ProcessBlockData):
         ),
     )
     CONFIG.declare(
+        "enable_pH_relaxation_on_property_block",
+        ConfigValue(
+            default=True,
+            domain=bool,
+            description="This will enable relaxationing H species in the property block",
+            doc="""
+            When specifying true speciation the problem can be come unstable, as IPOPT or other solver can
+             take steps the drive true speciation to infeasible composition. If this option is enabled it will do the following:
+             1) will make H a free element in the property block
+             2) will add an additional ouptut to property block for total amount of element H
+             3) will create a constraint that takes all H species that are supplied to the property block and make them equal to output amount of element H
+             
+             This will create a new subproblem, where external solver need to find a pH that satisfy total amount of H supplied by true speciation and any chemistry modifiers""",
+        ),
+    )
+    CONFIG.declare(
         "assert_charge_neutrality",
         ConfigValue(
             default=True,
@@ -326,7 +344,7 @@ class ReaktoroBlockData(ProcessBlockData):
             self.build_rkt_outputs(self.speciation_block, speciation_block=True)
             self.build_rkt_jacobian(self.speciation_block)
             self.build_rkt_solver(self.speciation_block, speciation_block=True)
-            self.build_gray_box(self.speciation_block)
+            self.build_gray_box(self.speciation_block, speciation_block=True)
 
             self.build_rkt_state(
                 self,
@@ -465,7 +483,22 @@ class ReaktoroBlockData(ProcessBlockData):
             pressure_state = self.config.system_state
             enthalpy_state = self.config.system_state
             pH_state = self.config.system_state
+        config_ph = return_none_option(pH_state.pH)
+        config_ph_index = get_indexing(pH_state.pH_indexed)
 
+        # setup aqueous inputs
+        aqueous_input_composition = self.config.aqueous_phase.composition
+        liquid_input_composition = self.config.liquid_phase.composition
+        condensed_input_composition = self.config.condensed_phase.composition
+
+        if self.config.enable_pH_relaxation_on_property_block and config_ph == None:
+
+            self.add_relaxation_vars("relaxation_pH")
+            config_ph = self.relaxation_pH
+            config_ph_index = False
+            block.rkt_state.register_relaxation_var(
+                "relaxation_H2O", self.relaxation_H2O
+            )
         block.rkt_state.register_system_inputs(
             temperature=temperature_state.temperature,
             pressure=pressure_state.pressure,
@@ -473,13 +506,10 @@ class ReaktoroBlockData(ProcessBlockData):
             enthalpy_index=get_indexing(enthalpy_state.enthalpy_indexed),
             temperature_index=get_indexing(temperature_state.temperature_indexed),
             pressure_index=get_indexing(pressure_state.pressure_indexed),
-            pH=return_none_option(pH_state.pH),
-            pH_index=get_indexing(pH_state.pH_indexed),
+            pH=config_ph,
+            pH_index=config_ph_index,
         )
-        # setup aqueous inputs
-        aqueous_input_composition = self.config.aqueous_phase.composition
-        liquid_input_composition = self.config.liquid_phase.composition
-        condensed_input_composition = self.config.condensed_phase.composition
+
         if building_prop_block_after_speciation():
             # we need to ensure when we provide initial input compo into
             # speciation block we don't have extremely high ion concentration
@@ -588,6 +618,29 @@ class ReaktoroBlockData(ProcessBlockData):
         # build state
         block.rkt_state.build_state()
 
+    def add_relaxation_vars(self, var_name, var_units=None):
+        """This will add relaxation input and output variable to the block"""
+        # check iv inputs are dict, otherwise convert to dict
+        if var_name == "relaxation_pH":
+            self.relaxation_pH = Var(
+                initialize=7.0, bounds=(-1, 14), units=pyunits.dimensionless
+            )
+            self.relaxation_H2O = Var(
+                initialize=55, bounds=(0, None), units=pyunits.mol
+            )
+            self.element_amounts = Var(
+                [
+                    "O",
+                    "H",
+                ],
+                initialize=1.0,
+                bounds=(0, None),
+                units=pyunits.mol,
+            )
+            self.convert_outputs_to_dict()
+            self.config.outputs[("elementAmount", "H")] = self.element_amounts["H"]
+            self.config.outputs[("elementAmount", "O")] = self.element_amounts["O"]
+
     def build_rkt_inputs(
         self,
         block,
@@ -661,11 +714,39 @@ class ReaktoroBlockData(ProcessBlockData):
                 dissolve_species_in_rkt=self.config.dissolve_species_in_reaktoro,
                 exact_speciation=self.config.exact_speciation,
             )
-        else:
+            block.rkt_inputs.build_input_specs()
+        elif (
+            speciation_block == False
+            and self.config.enable_pH_relaxation_on_property_block
+            and self.config.build_speciation_block
+        ) or (
+            self.config.enable_pH_relaxation_on_property_block
+            and self.config.exact_speciation
+        ):
             # if we have built a speciation block, the feed should be charge neutral and
             # exact speciation is provided, then we balance on pH only,
-            # user can disable this by setting self.assert_charge_neutrality_on_all_blocks to False
+            # user can disable this by setting assert_charge_neutrality_on_all_blocks to False
             assert_charge_neutrality = False
+            block.rkt_inputs.register_charge_neutrality(
+                assert_neutrality=False,
+                ion=None,
+            )
+            block.rkt_inputs.configure_specs(
+                dissolve_species_in_rkt=self.config.dissolve_species_in_reaktoro,
+                exact_speciation=True,
+            )
+
+            # we will not build a H input into reaktoro, instead pH is provided as an input!
+            block.rkt_inputs.register_free_elements(["H", "O"])
+            block.rkt_inputs.register_open_species(["H", "O"])
+            # We will add solvent constraint so that water amount is fixed
+            block.rkt_inputs.register_fixed_solvent_specie(
+                solvent_name="relaxation_H2O",
+                specie=self.config.aqueous_phase.fixed_solvent_specie,
+                phase=RktInputTypes.aqueous_phase,
+            )
+            block.rkt_inputs.build_input_specs()
+        else:
             if self.config.assert_charge_neutrality_on_all_blocks:
                 # only do so if we have 'H+' in species
                 if "H+" in block.rkt_state.database_species:
@@ -678,7 +759,7 @@ class ReaktoroBlockData(ProcessBlockData):
                 dissolve_species_in_rkt=self.config.dissolve_species_in_reaktoro,
                 exact_speciation=True,
             )
-        block.rkt_inputs.build_input_specs()
+            block.rkt_inputs.build_input_specs()
 
     def build_rkt_outputs(self, block, speciation_block=False):
         """this will build rkt outputs specified block.
@@ -707,6 +788,7 @@ class ReaktoroBlockData(ProcessBlockData):
             else:
                 block.rkt_outputs.register_output("speciesAmount", get_all_indexes=True)
         else:
+
             # build user requested outputs
             for output_key, output_var in self.config.outputs.items():
                 if index is None or index in output_key:
@@ -731,6 +813,13 @@ class ReaktoroBlockData(ProcessBlockData):
                         block.rkt_outputs.register_output(
                             output_key, output_prop, pyomo_var=output_var
                         )
+
+    def convert_outputs_to_dict(self):
+        """This will convert the outputs to a dictionary"""
+        if isinstance(self.config.outputs, dict) == False:
+            self.config.outputs = {
+                key: self.config.outputs[key] for key in self.config.outputs
+            }
 
     def build_rkt_jacobian(self, block):
         """this will build rkt jacboian on specified block.
@@ -789,7 +878,7 @@ class ReaktoroBlockData(ProcessBlockData):
             hessian_type=self.config.jacobian_options.hessian_type,
         )
 
-    def build_gray_box(self, block):
+    def build_gray_box(self, block, speciation_block=False):
         """this will build rkt outputs specified block.
         The keyword arguments are for automatic configuration of speciation and property blocks
 
@@ -805,6 +894,17 @@ class ReaktoroBlockData(ProcessBlockData):
         block.rkt_block_builder.configure_jacobian_scaling(
             jacobian_scaling_type=scaling_type, user_scaling=scaling
         )
+        if (
+            speciation_block == False
+            and self.config.enable_pH_relaxation_on_property_block
+            and self.config.build_speciation_block
+        ) or (
+            self.config.enable_pH_relaxation_on_property_block
+            and self.config.exact_speciation
+        ):
+            block.rkt_block_builder.configure_relaxation_constraints(
+                constraint_types="total_hydrogen_link"
+            )
         if self.config.reaktoro_block_manager is not None:
             managed_block = self.config.reaktoro_block_manager.register_block(
                 state=block.rkt_state,

@@ -23,6 +23,7 @@ class RktInputTypes:
     K = "K"
     Pa = "Pa"
     pH = "pH"
+    pOH = "pOH"
     temperature = "temperature"
     enthalpy = "enthalpy"
     pressure = "pressure"
@@ -37,6 +38,7 @@ class RktInputTypes:
     liquid_phase = "liquid_phase"
     solid_phase = "solid_phase"
     condensed_phase = "condensed_phase"
+    relaxation = "relaxation"
     supported_phases = [
         aqueous_phase,
         gas_phase,
@@ -46,7 +48,7 @@ class RktInputTypes:
         condensed_phase,
         liquid_phase,
     ]
-    non_species_types = [pH, enthalpy, pressure, temperature]
+    non_species_types = [pH, enthalpy, pressure, temperature, relaxation]
 
 
 class RktInput:
@@ -254,7 +256,10 @@ class RktInputs(dict):
         return var_name
 
     def _set_species(self, var_name, var, phase):
-        if var_name not in RktInputTypes.non_species_types:
+        if (
+            var_name not in RktInputTypes.non_species_types
+            and phase not in RktInputTypes.non_species_types
+        ):
             if var_name not in self.species_list[phase]:
                 if self.convert_to_rkt_species[phase]:
                     var_name = self.convert_rkt_species_fun(var_name, phase)

@@ -108,6 +108,7 @@ class RemoteWorker:
                 self.get_params()
                 jacobian, outputs = self.solver.solve_reaktoro_block(self.params)
                 self.update_output_matrix(outputs, jacobian)
+
             return WorkerMessages.success
         except cyipopt.CyIpoptEvaluationError:
             return WorkerMessages.CyIpoptEvaluationError
@@ -141,7 +142,6 @@ class RemoteWorker:
 
     def update_inputs(self):
         for i, key in enumerate(self.inputs.rkt_inputs.keys()):
-
             self.inputs.rkt_inputs[key].value = self.input_matrix[0][i]
             self.inputs.rkt_inputs[key].converted_value = self.input_matrix[1][i]
 

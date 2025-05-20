@@ -61,12 +61,14 @@ class AggregateSolverState:
         self.outputs = []
         self.output_blk_indexes = []
         self.jacobian_scaling_obj = []
+        self.input_scaling_obj = []
         self.solver_functions = {}
         self.get_solution_function = {}
         self.output_matrix = []
         self.jacobian_matrix = []
         self.input_windows = {}
         self.output_windows = {}
+        self.relaxation_constraints = {}
         self.parallel_mode = parallel_mode
         if maximum_number_of_parallel_solves is None:
             maximum_number_of_parallel_solves = multiprocessing.cpu_count() - 1
@@ -77,6 +79,9 @@ class AggregateSolverState:
 
     def register_get_function(self, block_index, get_function):
         self.get_solution_function[block_index] = get_function
+
+    def register_relaxation_constraints(self, block_index, constraint_types):
+        self.relaxation_constraints[block_index] = constraint_types
 
     def register_input(self, block_index, input_key, input_obj):
         self.inputs.append((block_index, input_key))
@@ -115,12 +120,22 @@ class AggregateSolverState:
             output_end + 1,
         )  # need to offset by 1
 
-    def register_scaling_vals(self, scaling_func):
+    def register_scaling_vals(self, scaling_func, input_scaling_func):
         self.jacobian_scaling_obj.append(scaling_func)
+        self.input_scaling_obj.append(input_scaling_func)
 
     def get_jacobian_scaling(self):
         scaling_array = None
         for obj in self.jacobian_scaling_obj:
+            if scaling_array is None:
+                scaling_array = obj()
+            else:
+                scaling_array = np.hstack((scaling_array, obj()))
+        return scaling_array
+
+    def get_input_scaling(self):
+        scaling_array = None
+        for obj in self.input_scaling_obj:
             if scaling_array is None:
                 scaling_array = obj()
             else:
@@ -169,7 +184,6 @@ class AggregateSolverState:
         for blk in active_workers:
             jacobian, output = self.get_solution_function[blk]()
             self.update_solution(blk, output, jacobian)
-
         return (
             self.jacobian_matrix,
             self.output_matrix,
@@ -206,11 +220,20 @@ class ReaktoroBlockManagerData(ProcessBlockData):
     CONFIG.declare(
         "hessian_type",
         ConfigValue(
-            default="BFGS",
+            default=HessTypes.BFGS,
             domain=IsInstance((str, HessTypes)),
             description="Hessian type to use for reaktor gray box",
             doc="""Hessian type to use, some might provide better stability
-                options (Jt.J, BFGS, BFGS-mod, BFGS-damp, BFGS-ipopt""",
+                options:
+                - NoHessian - no hessian
+                - GaussNewton - default
+                - BFGS - Broyden-Fletcher-Goldfarb-Shanno   
+                - BFGS_mod - modified BFGS
+                - BFGS_damp - damped BFGS   
+                - BFGS_ipopt - BFGS with ipopt update step
+                - diag_inv - diagonal inverse
+                    
+                    """,
         ),
     )
     CONFIG.declare(
@@ -272,7 +295,8 @@ class ReaktoroBlockManagerData(ProcessBlockData):
         for block_idx, block in enumerate(self.registered_blocks):
             if self.config.use_parallel_mode:
                 self.parallel_manager.register_block(block_idx, block)
-            for key, obj in block.inputs.rkt_inputs.items():
+            for key in block.inputs.rkt_inputs.rkt_input_list:
+                obj = block.inputs.rkt_inputs[key]
                 self.aggregate_solver_state.register_input(block_idx, key, obj)
             for output in block.outputs.rkt_outputs.keys():
                 self.aggregate_solver_state.register_output(block_idx, output)
@@ -284,9 +308,12 @@ class ReaktoroBlockManagerData(ProcessBlockData):
                     block_idx, solve_func
                 )
                 self.aggregate_solver_state.register_scaling_vals(
-                    block.builder.get_jacobian_scaling
+                    block.builder.get_jacobian_scaling, block.builder.get_input_scaling
                 )
                 self.aggregate_solver_state.register_get_function(block_idx, get_func)
+                self.aggregate_solver_state.register_relaxation_constraints(
+                    block_idx, block.builder.relaxation_constraint_types
+                )
             else:
                 self.aggregate_solver_state.register_solve_function(
                     block_idx, block.solver.solve_reaktoro_block
