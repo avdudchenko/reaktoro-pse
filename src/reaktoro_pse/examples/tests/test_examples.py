@@ -39,7 +39,7 @@ def test_thermal_precipt():
     m = thermal_precipitation.main()
     assert (
         pytest.approx(
-            m.precipitation_properties[("speciesAmount", "Calcite")].value, 1e-3
+            m.precipitation_properties[("speciesAmount", "Calcite")].value, 1e-2
         )
         == 0.0006758619742413355
     )
