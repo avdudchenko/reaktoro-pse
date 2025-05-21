@@ -489,14 +489,21 @@ class ReaktoroBlockData(ProcessBlockData):
         liquid_input_composition = self.config.liquid_phase.composition
         condensed_input_composition = self.config.condensed_phase.composition
 
-        if self.config.enable_pH_relaxation_on_property_block and config_ph == None:
+        if (
+            self.config.enable_pH_relaxation_on_property_block
+            and config_ph == None
+            and (aqueous_input_composition != {} or liquid_input_composition != {})
+        ):
 
-            self.add_relaxation_vars("relaxation_pH")
+            self.add_relaxation_vars(block, "relaxation_pH")
             config_ph = self.relaxation_pH
             config_ph_index = False
             block.rkt_state.register_relaxation_var(
-                "relaxation_H2O", self.relaxation_H2O
+                "relaxation_H2O", block.relaxation_H2O
             )
+            self.relaxing_pH_enabled = True
+        else:
+            self.relaxing_pH_enabled = False
         block.rkt_state.register_system_inputs(
             temperature=temperature_state.temperature,
             pressure=pressure_state.pressure,
@@ -616,17 +623,18 @@ class ReaktoroBlockData(ProcessBlockData):
         # build state
         block.rkt_state.build_state()
 
-    def add_relaxation_vars(self, var_name, var_units=None):
+    def add_relaxation_vars(self, block, var_name, var_units=None):
         """This will add relaxation input and output variable to the block"""
         # check iv inputs are dict, otherwise convert to dict
         if var_name == "relaxation_pH":
-            self.relaxation_pH = Var(
+            block.relaxation_pH = Var(
                 initialize=7.0, bounds=(-1, 14), units=pyunits.dimensionless
             )
-            self.relaxation_H2O = Var(
+            block.relaxation_H2O = Var(
                 initialize=55, bounds=(0, None), units=pyunits.mol
             )
-            self.element_amounts = Var(
+            print(block.relaxation_H2O)
+            block.element_amounts = Var(
                 [
                     "O",
                     "H",
@@ -636,8 +644,17 @@ class ReaktoroBlockData(ProcessBlockData):
                 units=pyunits.mol,
             )
             self.convert_outputs_to_dict()
-            self.config.outputs[("elementAmount", "H")] = self.element_amounts["H"]
-            self.config.outputs[("elementAmount", "O")] = self.element_amounts["O"]
+            if self.index() is not None:
+
+                self.config.outputs[(self.index(), "elementAmount", "H")] = (
+                    block.element_amounts["H"]
+                )
+                self.config.outputs[(self.index(), "elementAmount", "O")] = (
+                    block.element_amounts["O"]
+                )
+            else:
+                self.config.outputs[("elementAmount", "H")] = block.element_amounts["H"]
+                self.config.outputs[("elementAmount", "O")] = block.element_amounts["O"]
 
     def build_rkt_inputs(
         self,
@@ -690,50 +707,37 @@ class ReaktoroBlockData(ProcessBlockData):
         block.rkt_inputs.register_free_elements(self.config.aqueous_phase.free_element)
         block.rkt_inputs.register_free_elements(self.config.liquid_phase.free_element)
         # register charge neutrality
-        # only ensure charge neutrality when doing first calculation
-        if speciation_block_built == False:
-            # if exact speciation - then charge balance should be done on pH
-            assert_charge_neutrality = self.config.assert_charge_neutrality
-            if self.config.exact_speciation == True:
-                # only do so if we have 'H+' in species
-                ion_for_balancing = "pH"
-                if "H+" not in block.rkt_state.database_species:
-                    assert_charge_neutrality = False
+        # default charge balance is for non exact speciation on property block
+        # if this is not speciation block and we are not given exact speciation
+        # the charge balance on user defined ion
+        exact_speciation = self.config.exact_speciation
+        assert_charge_neutrality = self.config.assert_charge_neutrality
+        ion_for_balancing = self.config.charge_neutrality_ion
 
-            else:
-                assert_charge_neutrality = self.config.assert_charge_neutrality
-                ion_for_balancing = self.config.charge_neutrality_ion
-
-            block.rkt_inputs.register_charge_neutrality(
-                assert_neutrality=assert_charge_neutrality,
-                ion=ion_for_balancing,
-            )
-            block.rkt_inputs.configure_specs(
-                dissolve_species_in_rkt=self.config.dissolve_species_in_reaktoro,
-                exact_speciation=self.config.exact_speciation,
-            )
-            block.rkt_inputs.build_input_specs()
+        # if this is not speciation block and we are given exact speciation but no relaxation,
+        # we charge balance on pH
+        if (
+            speciation_block == False
+            and exact_speciation == True
+            and self.relaxing_pH_enabled == False
+        ):
+            # only do so if we have 'H+' in species
+            ion_for_balancing = "pH"
+            if (
+                "H+" not in block.rkt_state.database_species
+                or self.config.assert_charge_neutrality_on_all_blocks == False
+            ):
+                assert_charge_neutrality = False
+        # if this is not speciation block and we are given exact speciation or have built speciation block and want to relax
         elif (
             speciation_block == False
-            and self.config.enable_pH_relaxation_on_property_block
-            and self.config.build_speciation_block
-        ) or (
-            self.config.enable_pH_relaxation_on_property_block
-            and self.config.exact_speciation
+            and (exact_speciation == True or speciation_block_built)
+            and self.relaxing_pH_enabled
         ):
-            # if we have built a speciation block, the feed should be charge neutral and
-            # exact speciation is provided, then we balance on pH only,
-            # user can disable this by setting assert_charge_neutrality_on_all_blocks to False
-            assert_charge_neutrality = False
-            block.rkt_inputs.register_charge_neutrality(
-                assert_neutrality=False,
-                ion=None,
-            )
-            block.rkt_inputs.configure_specs(
-                dissolve_species_in_rkt=self.config.dissolve_species_in_reaktoro,
-                exact_speciation=True,
-            )
 
+            exact_speciation = True
+            assert_charge_neutrality = False
+            ion_for_balancing = "pH"
             # we will not build a H input into reaktoro, instead pH is provided as an input!
             block.rkt_inputs.register_free_elements(["H", "O"])
             block.rkt_inputs.register_open_species(["H", "O"])
@@ -743,21 +747,16 @@ class ReaktoroBlockData(ProcessBlockData):
                 specie=self.config.aqueous_phase.fixed_solvent_specie,
                 phase=RktInputTypes.aqueous_phase,
             )
-            block.rkt_inputs.build_input_specs()
-        else:
-            if self.config.assert_charge_neutrality_on_all_blocks:
-                # only do so if we have 'H+' in species
-                if "H+" in block.rkt_state.database_species:
-                    assert_charge_neutrality = self.config.assert_charge_neutrality
-            block.rkt_inputs.register_charge_neutrality(
-                assert_neutrality=assert_charge_neutrality,
-                ion="pH",
-            )
-            block.rkt_inputs.configure_specs(
-                dissolve_species_in_rkt=self.config.dissolve_species_in_reaktoro,
-                exact_speciation=True,
-            )
-            block.rkt_inputs.build_input_specs()
+
+        block.rkt_inputs.register_charge_neutrality(
+            assert_neutrality=assert_charge_neutrality,
+            ion=ion_for_balancing,
+        )
+        block.rkt_inputs.configure_specs(
+            dissolve_species_in_rkt=self.config.dissolve_species_in_reaktoro,
+            exact_speciation=exact_speciation,
+        )
+        block.rkt_inputs.build_input_specs()
 
     def build_rkt_outputs(self, block, speciation_block=False):
         """this will build rkt outputs specified block.

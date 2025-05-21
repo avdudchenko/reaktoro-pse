@@ -19,7 +19,7 @@ from reaktoro_pse.examples import (
 
 
 def test_desal():
-    m, m_open = simple_desalination.main()
+    m = simple_desalination.main()
 
     assert (
         pytest.approx(m.desal_properties[("scalingTendency", "Gypsum")].value, 1e-3)
@@ -33,8 +33,6 @@ def test_desal():
     assert pytest.approx(m.desal_properties[("pH", None)].value, 1e-2) == 6.284055
     assert pytest.approx(m.water_recovery.value, 1e-3) == 0.899999
     assert pytest.approx(m.acid_addition.value, 1e-3) == 0.003043
-    for key, obj in m.desal_properties.items():
-        assert pytest.approx(obj.value, 1e-3) == m_open.desal_properties[key].value
 
 
 def test_thermal_precipt():
@@ -43,37 +41,37 @@ def test_thermal_precipt():
         pytest.approx(
             m.precipitation_properties[("speciesAmount", "Calcite")].value, 1e-3
         )
-        == 0.0009467511444760701
+        == 0.0006758619742413355
     )
     assert (
         pytest.approx(
             m.precipitation_properties[("vaporPressure", "H2O(g)")].value, 1e-3
         )
-        == 17801.227149565908
+        == 13558.67127352554
     )
     assert (
         pytest.approx(m.precipitation_properties[("pH", None)].value, 1e-3)
-        == 6.913772075650711
+        == 6.8970980807083855
     )
-    assert pytest.approx(m.Q_heating.value, 1e-3) == 165000
-    assert pytest.approx(m.Q_recoverable.value, 1e-3) == 82500
+    assert pytest.approx(m.Q_heating.value, 1e-3) == 145000
+    assert pytest.approx(m.Q_recoverable.value, 1e-3) == 72500
     assert (
         pytest.approx(m.precipitator_temperature.value, 1e-3)
-        == 273.15 + 57.90940479948432
+        == 273.15 + 52.21361654532427
     )
     assert (
         pytest.approx(m.cooled_treated_temperature.value, 1e-1)
-        == 273.15 + 37.8773655288286
+        == 273.15 + 29.341319404872877
     )
 
 
 def test_ion_exchange():
     m = simple_ion_exchange.main()
 
-    assert pytest.approx(m.removal_percent["Mg"].value, 1e-1) == -30.388987138928876
-    assert pytest.approx(m.removal_percent["Ca"].value, 1e-1) == -76.77992923439626
-    assert pytest.approx(m.treated_pH.value, 1e-2) == 13.469086112114972
-    assert pytest.approx(m.base_addition.value, abs=1e-3) == 0.3887356155775067
+    assert pytest.approx(m.removal_percent["Mg"].value, 1e-1) == -35.54130924283
+    assert pytest.approx(m.removal_percent["Ca"].value, 1e-1) == -79.15299911033
+    assert pytest.approx(m.treated_pH.value, 1e-2) == 13.374349619456911
+    assert pytest.approx(m.base_addition.value, abs=1e-3) == 0.31967192053040094
 
 
 def test_biogas():

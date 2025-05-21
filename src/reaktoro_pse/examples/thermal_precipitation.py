@@ -260,10 +260,10 @@ def build_simple_precipitation():
             "activity_model": "ActivityModelRedlichKwong",
         },
         database=database,  # need to specify new data base to use
-        dissolve_species_in_reaktoro=False,
+        dissolve_species_in_reaktoro=True,
         jacobian_options={
             "user_scaling": {
-                ("molarEnthalpy", None): 1,
+                ("molarEnthalpy", None): 1e-3,
                 ("specificHeatCapacityConstP", None): 1,
             },
         },
@@ -289,11 +289,11 @@ def build_simple_precipitation():
             "activity_model": "ActivityModelRedlichKwong",
         },
         database=database,  # need to specify new data base to use
-        dissolve_species_in_reaktoro=False,
+        dissolve_species_in_reaktoro=True,
         build_speciation_block=True,
         jacobian_options={
             "user_scaling": {
-                ("molarEnthalpy", None): 1,
+                ("molarEnthalpy", None): 1e-3,
                 ("specificHeatCapacityConstP", None): 1,
             },
         },
@@ -318,10 +318,10 @@ def build_simple_precipitation():
             "activity_model": "ActivityModelRedlichKwong",
         },
         database=database,  # need to specify new data base to use
-        dissolve_species_in_reaktoro=False,
+        dissolve_species_in_reaktoro=True,
         jacobian_options={
             "user_scaling": {
-                ("molarEnthalpy", None): 1,
+                ("molarEnthalpy", None): 1e-3,
                 ("specificHeatCapacityConstP", None): 1,
             },
         },
@@ -346,10 +346,10 @@ def build_simple_precipitation():
             "activity_model": "ActivityModelRedlichKwong",
         },
         database=database,  # need to specify new data base to use
-        dissolve_species_in_reaktoro=False,
+        dissolve_species_in_reaktoro=True,
         jacobian_options={
             "user_scaling": {
-                ("molarEnthalpy", None): 1,
+                ("molarEnthalpy", None): 1e-3,
                 ("specificHeatCapacityConstP", None): 1,
             },
         },
@@ -390,20 +390,20 @@ def scale_model(m):
         m.precipitation_properties[("speciesAmount", "Anhydrite")], 1e5
     )
     iscale.set_scaling_factor(
-        m.precipitation_properties[("molarEnthalpy", None)], 1 / 1e4
+        m.precipitation_properties[("molarEnthalpy", None)], 1 / 1e6
     )
-    iscale.set_scaling_factor(m.feed_properties[("molarEnthalpy", None)], 1 / 1e4)
-    iscale.set_scaling_factor(m.treated_properties[("molarEnthalpy", None)], 1 / 1e4)
+    iscale.set_scaling_factor(m.feed_properties[("molarEnthalpy", None)], 1 / 1e3)
+    iscale.set_scaling_factor(m.treated_properties[("molarEnthalpy", None)], 1 / 1e3)
     iscale.set_scaling_factor(
-        m.cooled_treated_properties[("molarEnthalpy", None)], 1 / 1e4
+        m.cooled_treated_properties[("molarEnthalpy", None)], 1 / 1e6
     )
     iscale.set_scaling_factor(m.feed_temperature, 1 / 100)
     iscale.set_scaling_factor(m.precipitator_temperature, 1 / 100)
     iscale.set_scaling_factor(m.cooled_treated_temperature, 1 / 100)
-    iscale.set_scaling_factor(m.Q_heating, 1 / 1e4)
-    iscale.set_scaling_factor(m.Q_recoverable, 1 / 1e4)
-    iscale.constraint_scaling_transform(m.eq_Q_heating, 1 / 1e4)
-    iscale.constraint_scaling_transform(m.eq_Q_recoverable, 1 / 1e4)
+    iscale.set_scaling_factor(m.Q_heating, 1 / 1e3)
+    iscale.set_scaling_factor(m.Q_recoverable, 1 / 1e3)
+    iscale.constraint_scaling_transform(m.eq_Q_heating, 1 / 1e3)
+    iscale.constraint_scaling_transform(m.eq_Q_recoverable, 1 / 1e3)
 
 
 def initialize(m):
@@ -416,7 +416,7 @@ def initialize(m):
     # This will also get us initial precipitation amounts"""
     m.eq_feed_properties.initialize()
     m.eq_precipitation_properties.initialize()
-    """ get sludge flow volume first """
+    # get sludge flow volume first
     calculate_variable_from_constraint(
         m.sludge_composition["H2O"], m.eq_sludge_composition["H2O"]
     )
@@ -440,7 +440,7 @@ def initialize(m):
 
 
 def setup_optimization(m):
-    m.Q_heating.fix(165000)
+    m.Q_heating.fix(145000)
     m.precipitator_temperature.unfix()
 
 

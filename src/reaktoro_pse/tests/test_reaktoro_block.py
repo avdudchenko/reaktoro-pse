@@ -68,7 +68,10 @@ def build_rkt_state_with_indexed_species():
         units=pyunits.mol / pyunits.s,
     )
     for idx in [0, 1]:
-        m.composition[(idx, "H2O")].fix(50)
+        if idx == 0:
+            m.composition[(idx, "H2O")].fix(50)
+        else:
+            m.composition[(idx, "H2O")].fix(20)
         m.composition[(idx, "Mg")].fix(0.1 * (1 + idx))
         m.composition[(idx, "Na")].fix(0.5 * (1 + idx))
         m.composition[(idx, "Cl")].fix(0.5 * (1 + idx))
@@ -96,11 +99,6 @@ def test_blockBuild(build_rkt_state_with_species):
         },
         database="PhreeqcDatabase",
         database_file="pitzer.dat",
-        jacobian_options={
-            "numerical_type": "average",
-            "numerical_order": 2,
-            "numerical_step": 1e-8,
-        },
         outputs=m.outputs,
     )
     print("rkt block")
@@ -134,11 +132,6 @@ def test_activate_deactivate(build_rkt_state_with_species):
         },
         database="PhreeqcDatabase",
         database_file="pitzer.dat",
-        jacobian_options={
-            "numerical_type": "average",
-            "numerical_order": 2,
-            "numerical_step": 1e-8,
-        },
         outputs=m.outputs,
     )
     m.property_block.initialize()
@@ -206,11 +199,6 @@ def test_blockBuild_solids_gas(build_rkt_state_with_species):
         },
         database="PhreeqcDatabase",
         database_file="pitzer.dat",
-        jacobian_options={
-            "numerical_type": "average",
-            "numerical_order": 2,
-            "numerical_step": 1e-8,
-        },
         outputs=m.solid_gas_outputs,
     )
     m.display()
@@ -247,11 +235,6 @@ def test_blockBuild_with_speciation_block(build_rkt_state_with_species):
         },
         database="PhreeqcDatabase",
         database_file="pitzer.dat",
-        jacobian_options={
-            "numerical_type": "average",
-            "numerical_order": 2,
-            "numerical_step": 1e-8,
-        },
         chemistry_modifier=m.CaO,
         outputs=m.outputs,
         build_speciation_block=True,
@@ -270,6 +253,7 @@ def test_blockBuild_with_speciation_block(build_rkt_state_with_species):
     m.property_block.display_jacobian_outputs()
 
     scaling_result = m.property_block.display_jacobian_scaling()
+    print(scaling_result)
     expected_scaling = {
         "speciation_block": {
             ("speciesAmount", "H+"): 9.007999999999993e-08,
@@ -286,8 +270,10 @@ def test_blockBuild_with_speciation_block(build_rkt_state_with_species):
             ("speciesAmount", "OH-"): 6.004424745615723e-08,
         },
         "property_block": {
-            ("saturationIndex", "Calcite"): 1.554873983061197,
-            ("pH", None): 7.520409745594153,
+            ("saturationIndex", "Calcite"): 1.0039063040136889,
+            ("pH", None): 6.999999999999997,
+            ("elementAmount", "H"): 100.06604790440808,
+            ("elementAmount", "O"): 50.05722130488963,
         },
     }
     assert "speciation_block" in scaling_result
@@ -337,11 +323,6 @@ def test_blockBuild_with_speciation_block_no_chem_addition(
         },
         database="PhreeqcDatabase",
         database_file="pitzer.dat",
-        jacobian_options={
-            "numerical_type": "average",
-            "numerical_order": 2,
-            "numerical_step": 1e-8,
-        },
         outputs=m.outputs,
         build_speciation_block=True,
     )
@@ -398,11 +379,6 @@ def test_blockBuild_with_temp_and_pressure_modification_in_speciation_block(
         },
         database="PhreeqcDatabase",
         database_file="pitzer.dat",
-        jacobian_options={
-            "numerical_type": "average",
-            "numerical_order": 2,
-            "numerical_step": 1e-8,
-        },
         chemistry_modifier=m.CaO,
         outputs=m.outputs_mod,
         build_speciation_block=True,
@@ -451,11 +427,6 @@ def test_blockBuild_with_speciation_block_no_chem_super_critical_db(
         chemistry_modifier=m.CaO,
         database="SupcrtDatabase",
         database_file="supcrtbl",
-        jacobian_options={
-            "numerical_type": "average",
-            "numerical_order": 2,
-            "numerical_step": 1e-8,
-        },
         outputs=m.outputs,
         build_speciation_block=True,
     )
@@ -465,7 +436,7 @@ def test_blockBuild_with_speciation_block_no_chem_super_critical_db(
 
     m.display()
     cy_solver = get_solver(solver="cyipopt-watertap")
-    cy_solver.options["max_iter"] = 20
+    cy_solver.options["max_iter"] = 50
     m.pH.unfix()
     m.outputs[("scalingTendency", "Calcite")].fix(5)
     result = cy_solver.solve(m, tee=True)
@@ -497,11 +468,6 @@ def test_indexed_blockBuild(build_rkt_state_with_indexed_species):
         },
         database="PhreeqcDatabase",
         database_file="pitzer.dat",
-        jacobian_options={
-            "numerical_type": "average",
-            "numerical_order": 2,
-            "numerical_step": 1e-8,
-        },
         outputs=m.outputs,
     )
     for blk in m.property_block:
@@ -516,7 +482,7 @@ def test_indexed_blockBuild(build_rkt_state_with_indexed_species):
     assert_optimal_termination(result)
     m.display()
     assert pytest.approx(m.pH[0].value, 1e-3) == 6.78206
-    assert pytest.approx(m.pH[1].value, 1e-3) == 6.161411138058621
+    assert pytest.approx(m.pH[1].value, 1e-3) == 5.719012533419923
 
 
 def test_indexed_blockBuild_with_speciation_block(
@@ -540,11 +506,6 @@ def test_indexed_blockBuild_with_speciation_block(
         chemistry_modifier=m.CaO,
         database="PhreeqcDatabase",
         database_file="pitzer.dat",
-        jacobian_options={
-            "numerical_type": "average",
-            "numerical_order": 2,
-            "numerical_step": 1e-8,
-        },
         outputs=m.outputs,
         build_speciation_block=True,
     )
@@ -560,4 +521,14 @@ def test_indexed_blockBuild_with_speciation_block(
     assert_optimal_termination(result)
     m.display()
     assert pytest.approx(m.CaO[(0, "CaO")].value, 1e-3) == 0.01732553618254949
-    assert pytest.approx(m.CaO[(1, "CaO")].value, 1e-3) == 0.01205362158984656
+    assert pytest.approx(m.CaO[(1, "CaO")].value, 1e-3) == 0.011351679127420139
+    assert (
+        pytest.approx(m.property_block[0].relaxation_H2O.value, 1e-3)
+        == 49.99237778905057
+    )
+    assert pytest.approx(m.property_block[0].relaxation_pH.value, 1e-3) == 11.5
+    assert (
+        pytest.approx(m.property_block[1].relaxation_H2O.value, 1e-3)
+        == 20.006060396417787
+    )
+    assert pytest.approx(m.property_block[1].relaxation_pH.value, 1e-3) == 10

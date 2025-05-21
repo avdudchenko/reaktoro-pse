@@ -156,7 +156,6 @@ def build_simple_desal():
         assert_charge_neutrality=False,
         reaktoro_solve_options={
             "solver_tolerance": 1e-12,
-            "open_species_on_property_block": ["OH-"],
         },
         # we do not need to re-speciate.
         exact_speciation=True,

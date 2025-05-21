@@ -29,7 +29,7 @@ class ReaktoroSolverOptions:
         CONFIG.declare(
             "max_iterations",
             ConfigValue(
-                default=1000,
+                default=400,
                 domain=int,
                 description="Maximum number of iterations for Reaktoro solver",
                 doc="""The maximum number of iterations for Reaktoro solver""",

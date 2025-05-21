@@ -49,22 +49,15 @@ __author__ = "Alexander V. Dudchenko"
 
 def main():
     m = build_simple_desal()
-    m_open = build_simple_desal(True)
     initialize(m)
-    m.display()
-    initialize(m_open)
     setup_optimization(m)
-    setup_optimization(m_open)
     # assert False
     print("---result with out extra open species---")
     solve(m)
-    m.eq_desal_properties.display()
-    print("---result with open extra open species---")
-    solve(m_open)
-    return m, m_open
+    return m
 
 
-def build_simple_desal(open_species=False, parallel_mode=True):
+def build_simple_desal(parallel_mode=True):
     m = ConcreteModel()
     m.feed_composition = Var(
         ["H2O", "Mg", "Na", "Cl", "SO4", "Ca", "HCO3"],
@@ -138,19 +131,6 @@ def build_simple_desal(open_species=False, parallel_mode=True):
     m.eq_water_recovery = Constraint(
         expr=m.water_recovery == m.desal_product_flow / m.feed_composition["H2O"]
     )
-    if open_species:
-
-        # Example for opening additional species to improve
-        # reaktoro solver stability,
-        # Note how this does not alter reaktoro output results as
-        # the H+ and OH- is already constrained by total H amount in property
-        # block, as such the DOFs are still zero.
-
-        # However, this can result in incorrect speciation for some databases, so please use with caution.
-
-        species_to_open = ["OH-"]
-    else:
-        species_to_open = None
 
     if parallel_mode:
         m.parallel_block_manager = ReaktoroBlockManager()
@@ -173,7 +153,6 @@ def build_simple_desal(open_species=False, parallel_mode=True):
         # we can use default converter as its defined for default database (Phreeqc and pitzer)
         # we are modifying state and must speciate inputs before adding acid to find final prop state.
         build_speciation_block=True,
-        reaktoro_solve_options={"open_species_on_property_block": species_to_open},
         reaktoro_block_manager=m.parallel_block_manager,
     )
     # assert False

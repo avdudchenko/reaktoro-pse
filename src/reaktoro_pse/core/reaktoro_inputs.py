@@ -299,7 +299,7 @@ class ReaktoroInputSpec:
                 if self.fixed_solvent_type == {}:
                     spc_name = specie
                 else:
-                    spc_name = self.fixed_solvent_type[specie]
+                    spc_name = self.fixed_solvent_type[self.fixed_solvent_specie[phase]]
                 self.write_speciesAmount_constraint(
                     specs_object, specie, input_name=spc_name
                 )

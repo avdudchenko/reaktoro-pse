@@ -267,14 +267,11 @@ class ReaktoroBlockBuilder:
     def initialize_relaxation_outputs(self):
         """initialize relaxation constraints"""
         if self.relaxation_constraint_types == "total_hydrogen_link":
-            sf = (
-                self.get_sf(
-                    self.solver.output_specs.user_outputs[
-                        ("elementAmount", "H")
-                    ].get_pyomo_var(),
-                    use_default_scaling=False,
-                )
-                * 10
+            sf = self.get_sf(
+                self.solver.output_specs.user_outputs[
+                    ("elementAmount", "H")
+                ].get_pyomo_var(),
+                use_default_scaling=False,
             )
             iscale.set_scaling_factor(
                 self.solver.output_specs.user_outputs[
@@ -303,9 +300,9 @@ class ReaktoroBlockBuilder:
                 .get_pyomo_var()
                 .value
             )
-            self.solver.state.inputs["H2O"].pyomo_var.value = (
-                self.block.relaxation_H2O.value
-            )
+            # self.solver.state.inputs["H2O"].pyomo_var.value = (
+            #     self.block.relaxation_H2O.value
+            # )
             iscale.constraint_scaling_transform(
                 self.block.h2o_relaxation_constraint, sf
             )
