@@ -18,7 +18,7 @@ from reaktoro_pse.core.reaktoro_gray_box import (
 )
 from reaktoro_pse.parallel_tools.parallel_manager import ReaktoroParallelManager
 
-from reaktoro_pse.core.reaktoro_gray_box import HessTypes
+from reaktoro_pse.core.util_classes.hessian_functions import HessTypes
 
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
     ExternalGreyBoxBlock,

@@ -16,24 +16,15 @@ from pyomo.contrib.pynumero.interfaces.external_grey_box import (
 )
 import numpy as np
 from scipy.sparse import coo_matrix
-
 import copy
 import idaes.logger as idaeslog
+from reaktoro_pse.core.util_classes.hessian_functions import (
+    HessianApproximation,
+    HessTypes,
+)
 
 __author__ = "Ilayda Akkor, Alexander V. Dudchenko, Paul Vecchiarelli, Ben Knueven"
 _log = idaeslog.getLogger(__name__)
-
-
-class HessTypes:
-    GaussNewton = "GaussNewton"
-    BFGS = "BFGS"
-    BFGS_mod = "BFGS_mod"
-    BFGS_damp = "BFGS_damp"
-    BFGS_ipopt = "BFGS_ipopt"
-    no_hessian = "no_hessian"
-    NoHessian = "NoHessian"
-    sparse_16 = "sparse_16"
-    diag_inv = "diag_inv"
 
 
 import idaes.core.util.scaling as iscale
@@ -76,6 +67,7 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
 
         _log.info(f"RKT gray box using {self.hess_type} hessian type")
         if self.hess_type != HessTypes.no_hessian:
+            self.hessian_calculator = HessianApproximation(hessian_type=self.hess_type)
             setattr(self, "evaluate_hessian_outputs", self._evaluate_hessian_outputs)
 
     ########################################################################################
@@ -143,160 +135,22 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
     def get_output_constraint_scaling_factors(self):
         return self.reaktoro_solver.get_jacobian_scaling()
 
-    def hessian_gauss_newton_version(self, sparse_jac, threshold=7):
-
-        s = np.zeros((len(self.inputs), len(self.inputs)))
-        for i in range(self.jacobian_matrix.shape[0]):
-            row = self.jacobian_matrix[i, :]
-            if sparse_jac:
-                row = np.round(row, decimals=threshold)
-            s += self._outputs_dual_multipliers[i] * np.outer(row.T, row)
-        hess = s
-        return hess
-
-    def update_bfgs_matrix(self):
+    def apply_dual_multipliers(self, hessian_matrix):
         h_sum = np.zeros((len(self.inputs), len(self.inputs)))
         for i in range(self.jacobian_matrix.shape[0]):
             h_sum += self.H[i] * self._outputs_dual_multipliers[i]
 
-        self.x = self._input_values.copy()
-        self.del_f = self.jacobian_matrix.copy()
-        return h_sum
-
-    def create_bfgs_matrix(self):
-        if not hasattr(self, "x"):
-            self.x = None
-        if not hasattr(self, "H"):
-            self.H = []
-            for i in range(self.jacobian_matrix.shape[0]):
-                self.H.append(np.identity(len(self.inputs)))
-
-    def hessian_bfgs(self):
-        # Cautious BFGS update implementation (Li and Fukushima)
-        self.create_bfgs_matrix()
-        if self.x is not None:
-            s_k = (np.array([self._input_values]) - self.x).T
-            alpha = 1
-            eps = 1e-6
-            for i in range(self.jacobian_matrix.shape[0]):
-                y_k = np.array([self.jacobian_matrix[i, :] - self.del_f[i, :]]).T
-                y_s = y_k.T @ s_k
-                H_s = self.H[i] @ s_k
-                w = (np.linalg.norm(s_k) ** 2) * (
-                    np.linalg.norm(self.del_f[i, :]) ** alpha
-                )
-
-                if y_s > eps * w:
-                    self.H[i] = (
-                        self.H[i]
-                        + (y_k @ y_k.T) / (y_s)
-                        - (H_s @ H_s.T) / (s_k.T @ H_s)
-                    )
-
-        return self.update_bfgs_matrix()
-
-    def hessian_modified_bfgs(self):
-        # Modified BFGS update implementation (Li and Fukushima)
-        self.create_bfgs_matrix()
-        if self.x is not None:
-            s_k = (np.array([self._input_values]) - self.x).T
-            for i in range(self.jacobian_matrix.shape[0]):
-                y_k = np.array([self.jacobian_matrix[i, :] - self.del_f[i, :]]).T
-                y_s = y_k.T @ s_k
-                H_s = self.H[i] @ s_k
-                if s_k.any():
-                    t_k = 1 + max(0, -y_s / (np.linalg.norm(s_k) ** 2))
-                    z_k = y_k + t_k * np.linalg.norm(self.del_f[i, :]) * s_k
-                    self.H[i] = (
-                        self.H[i]
-                        + (z_k @ z_k.T) / (z_k.T @ s_k)
-                        - (H_s @ H_s.T) / (s_k.T @ H_s)
-                    )
-
-        return self.update_bfgs_matrix()
-
-    def hessian_damped_bfgs(self):
-        # apply Powell's damping on the BFGS update
-        self.create_bfgs_matrix()
-        if self.x is not None:
-            s_k = (np.array([self._input_values]) - self.x).T
-            phi = 0.9
-            for i in range(self.jacobian_matrix.shape[0]):
-                y_k = np.array([self.jacobian_matrix[i, :] - self.del_f[i, :]]).T
-                y_s = y_k.T @ s_k
-                H_s = self.H[i] @ s_k
-
-                # new
-                s_H_s = s_k.T @ H_s
-                if y_s >= phi * s_H_s:
-                    delta_k = 1
-                else:
-                    delta_k = (1 - phi) * s_H_s / (s_H_s - y_s)
-                z_k = delta_k * y_k + (1 - delta_k) * H_s
-                z_s = z_k.T @ s_k
-                if z_k.shape != y_k.shape:
-                    raise RuntimeError()
-                if s_k.any():  # extra
-                    self.H[i] = (
-                        self.H[i] + (z_k @ z_k.T) / (z_s) - (H_s @ H_s.T) / (s_H_s)
-                    )
-                ###########################################
-        return self.update_bfgs_matrix()
-
-    def hessian_ipopt_bfgs_modification(self):
-        # BFGS update is only done on certain conditions (taken from IPOPT's implementation)
-        self.create_bfgs_matrix()
-        if self.x is not None:
-            s_k = (np.array([self._input_values]) - self.x).T
-            for i in range(self.jacobian_matrix.shape[0]):
-                y_k = np.array([self.jacobian_matrix[i, :] - self.del_f[i, :]]).T
-                y_s = y_k.T @ s_k
-                H_s = self.H[i] @ s_k
-                mach_eps = np.finfo(float).eps
-                if (
-                    y_s.T
-                    > np.sqrt(mach_eps) * np.linalg.norm(s_k) * np.linalg.norm(y_k)
-                ) and (np.linalg.norm(s_k, np.inf) >= 100 * mach_eps):
-                    self.H[i] = (
-                        self.H[i]
-                        + (y_k @ y_k.T) / (y_s)
-                        - (H_s @ H_s.T) / (s_k.T @ H_s)
-                    )
-        return self.update_bfgs_matrix()
-
-    def hessian_diag_inv_value(self):
-        hessian = np.zeros((len(self.inputs), len(self.inputs)))
-        for idx, v in enumerate(self._input_values):
-            hessian[idx, idx] = 1.0 / v
-        h_sum = np.zeros((len(self.inputs), len(self.inputs)))
-        for i in range(self.jacobian_matrix.shape[0]):
-            h_sum += self._outputs_dual_multipliers[i] * hessian[i]
         return h_sum
 
     def _evaluate_hessian_outputs(self):
-        if self.hess_type == HessTypes.NoHessian:
-            hessian_matrix = _sparse_diagonal(len(self.inputs), 0)
-        elif self.hess_type == HessTypes.sparse_16:
-            hessian_matrix = _sparse_diagonal(len(self.inputs), 1e-16)
-        elif self.hess_type == HessTypes.GaussNewton:
-            hessian_matrix = self.hessian_gauss_newton_version(sparse_jac=False)
-        elif self.hess_type == HessTypes.BFGS:
-            hessian_matrix = self.hessian_bfgs()
-        elif self.hess_type == HessTypes.BFGS_mod:
-            hessian_matrix = self.hessian_modified_bfgs()
-        elif self.hess_type == HessTypes.BFGS_damp:
-            hessian_matrix = self.hessian_damped_bfgs()
-        elif self.hess_type == HessTypes.BFGS_ipopt:
-            hessian_matrix = self.hessian_ipopt_bfgs_modification()
-        elif self.hess_type == HessTypes.diag_inv:
-            hessian_matrix = self.hessian_diag_inv_value()
-        else:
-            raise RuntimeError(
-                f"Hessian type {self.hess_type} not implemented in ReaktoroGrayBox"
-            )
+        """Evaluate the Hessian matrix of the outputs with respect to the inputs."""
+        hessian_matrix = self.hessian_calculator.get_hessian(
+            self._input_values, self.rkt_result, self.jacobian_matrix
+        )
         if isinstance(hessian_matrix, coo_matrix):
             return hessian_matrix
         else:
+            hessian_matrix = self.apply_dual_multipliers(hessian_matrix)
             low_triangular_hessian = _hand_tril(np.array(hessian_matrix))
             return low_triangular_hessian
 
@@ -317,15 +171,3 @@ def _hand_tril(jm):
             val.append(v)
 
     return coo_matrix((val, (row, col)), shape=(shape, shape))
-
-
-def _sparse_diagonal(shape, value=1e-16):
-    rows = []
-    cols = []
-    vals = []
-    for i in range(shape):
-        rows.append(i)
-        cols.append(i)
-        vals.append(value)
-
-    return coo_matrix((vals, (rows, cols)), shape=(shape, shape))

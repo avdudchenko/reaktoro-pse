@@ -1,7 +1,7 @@
 from pyomo.common.config import ConfigValue, IsInstance, ConfigDict
 from reaktoro_pse.core.reaktoro_jacobian import JacType
 from reaktoro_pse.core.reaktoro_block_builder import JacScalingTypes
-from reaktoro_pse.core.reaktoro_gray_box import HessTypes
+from reaktoro_pse.core.util_classes.hessian_functions import HessTypes
 
 
 class JacobianOptions:
