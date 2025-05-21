@@ -491,7 +491,7 @@ class ReaktoroBlockData(ProcessBlockData):
 
         if (
             self.config.enable_pH_relaxation_on_property_block
-            and config_ph == None
+            and config_ph is None
             and (aqueous_input_composition != {} or liquid_input_composition != {})
         ):
 
@@ -737,7 +737,7 @@ class ReaktoroBlockData(ProcessBlockData):
 
             exact_speciation = True
             assert_charge_neutrality = False
-            ion_for_balancing = "pH"
+            ion_for_balancing = None
             # we will not build a H input into reaktoro, instead pH is provided as an input!
             block.rkt_inputs.register_free_elements(["H", "O"])
             block.rkt_inputs.register_open_species(["H", "O"])

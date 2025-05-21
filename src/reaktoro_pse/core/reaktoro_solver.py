@@ -173,10 +173,10 @@ class ReaktoroSolver:
             input_obj = self.input_specs.rkt_inputs[input_key]
             if params is None:
                 value = input_obj.get_value(update_temp=True, apply_conversion=True)
-
             else:
                 value = params.get(input_key)
                 input_obj.set_temp_value(value)
+
             unit = input_obj.main_unit
             self._input_params[input_key] = value
 

@@ -300,9 +300,9 @@ class ReaktoroBlockBuilder:
                 .get_pyomo_var()
                 .value
             )
-            # self.solver.state.inputs["H2O"].pyomo_var.value = (
-            #     self.block.relaxation_H2O.value
-            # )
+            self.solver.state.inputs["H2O"].pyomo_var.value = (
+                self.block.relaxation_H2O.value
+            )
             iscale.constraint_scaling_transform(
                 self.block.h2o_relaxation_constraint, sf
             )
@@ -452,7 +452,7 @@ class ReaktoroBlockBuilder:
                     use_default_scaling,
                     return_none=None,
                 )
-                self.block.reaktoro_model.inputs[key].value = pyo_var.value
+                # self.block.reaktoro_model.inputs[key].value = pyo_var.value
 
                 iscale.set_scaling_factor(self.block.reaktoro_model.inputs[key], sf)
                 iscale.constraint_scaling_transform(
