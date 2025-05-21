@@ -128,7 +128,7 @@ class ReaktoroSolver:
         presolve_epsilon=1e-12,
         max_iters=500,
         presolve_max_iters=500,
-        hessian_type="J.tJ",
+        hessian_type="NoHessian",
     ):
         """configuration for reaktro solver
 
@@ -236,8 +236,6 @@ class ReaktoroSolver:
                 _log.warning(
                     f"{key}: {value}, prior input was: {self._old_input_params.get(key,None)}, delta: {value - self._old_input_params.get(key,0)}"
                 )
-            # print(self.state.state.props())
-            # print(rkt.AqueousProps(self.state.state.props()))
             self._sequential_fails += 1
             if self._sequential_fails > self._max_fails:
                 raise RuntimeError(

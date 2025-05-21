@@ -428,6 +428,9 @@ def test_blockBuild_with_speciation_block_no_chem_super_critical_db(
         database="SupcrtDatabase",
         database_file="supcrtbl",
         outputs=m.outputs,
+        reaktoro_solve_options={
+            "solver_tolerance": 1e-12,
+        },
         build_speciation_block=True,
     )
     for e, con in m.property_block.rkt_inputs.constraint_dict.items():
