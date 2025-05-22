@@ -88,8 +88,8 @@ def test_blockBuild_with_speciation_block(build_rkt_state_with_species):
         "property_block": {
             ("saturationIndex", "Calcite"): 1.0039063040136889,
             ("pH", None): 6.999999999999997,
-            ("elementAmount", "H"): 100.06604790440808,
-            ("elementAmount", "O"): 50.05722130488963,
+            ("elementAmount", "H"): 100.06604790440808 / 1e3,
+            ("elementAmount", "O"): 50.05722130488963 / 1e3,
         },
     }
     assert "speciation_block" in scaling_result
@@ -103,8 +103,6 @@ def test_blockBuild_with_speciation_block(build_rkt_state_with_species):
         )
     m.property_block.update_jacobian_scaling(new_scaling)
     scaling_result = m.property_block.display_jacobian_scaling()
-
-    print(m.property_block.reaktoro_model.outputs)
     assert len(m.property_block.reaktoro_model.outputs) == 4
 
     assert "speciation_block" in scaling_result

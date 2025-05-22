@@ -56,9 +56,7 @@ class ReaktoroBlockBuilder:
             raise TypeError("Reaktoro block builder requires a ReaktoroSolver class")
         self.configure_jacobian_scaling()
         self.reaktoro_initialize_function = None  # used to provide external solve call
-        self.relaxation_constraint_types = (
-            None  # used to specify relaxation constraints
-        )
+        self.relaxation_constraint_types = {}
         self.display_reaktoro_state_function = (
             None  # used to specifying external function to display rkt state
         )
@@ -122,7 +120,13 @@ class ReaktoroBlockBuilder:
 
     def configure_relaxation_constraints(self, constraint_types=None):
         """configure relaxation constraints"""
-        self.relaxation_constraint_types = constraint_types
+
+        if constraint_types is not None:
+            for key, items in constraint_types.items():
+                if key not in self.relaxation_constraint_types:
+                    self.relaxation_constraint_types[key] = {}
+
+                self.relaxation_constraint_types[key].update(items)
 
     def build_input_constraints(self):
 
@@ -237,7 +241,7 @@ class ReaktoroBlockBuilder:
 
     def build_relaxation_constraints(self):
         """build relaxation constraints"""
-        if self.relaxation_constraint_types == "total_hydrogen_link":
+        if "total_hydrogen_link" in self.relaxation_constraint_types:
             # this will build a pH relaxation constraint that sums up all H species and goign into reaktoro block
             # and makes them equal to H amount leaving reaktoro block
             # the pH must be left as a degree of freedom
@@ -252,6 +256,7 @@ class ReaktoroBlockBuilder:
                 ].get_pyomo_var()
                 == sum(total_H_amounts)
             )
+        if "total_oxygen_link" in self.relaxation_constraint_types:
             total_h2o_amount = []
             for mol, specie in self.solver.input_specs.all_inclusive_constraint_dict[
                 "O"
@@ -266,47 +271,69 @@ class ReaktoroBlockBuilder:
 
     def initialize_relaxation_outputs(self):
         """initialize relaxation constraints"""
-        if self.relaxation_constraint_types == "total_hydrogen_link":
-            sf = self.get_sf(
-                self.solver.output_specs.user_outputs[
-                    ("elementAmount", "H")
-                ].get_pyomo_var(),
-                use_default_scaling=False,
-            )
+        if "total_hydrogen_link" in self.relaxation_constraint_types:
+            sf = (
+                self.get_sf(
+                    self.solver.output_specs.user_outputs[
+                        ("elementAmount", "H")
+                    ].get_pyomo_var(),
+                    use_default_scaling=False,
+                )
+                # ensure we have enough precision to resolve H+
+            ) * self.relaxation_constraint_types["total_hydrogen_link"]["H_multiplier"]
             iscale.set_scaling_factor(
                 self.solver.output_specs.user_outputs[
                     ("elementAmount", "H")
                 ].get_pyomo_var(),
                 sf,
             )
+
+            rkt_var = self.block.reaktoro_model.outputs[("elementAmount", "H")]
+            iscale.constraint_scaling_transform(
+                self.block.output_constraints[("elementAmount", "H")], sf
+            )
+
+            iscale.set_scaling_factor(self.block.element_amounts_H, sf)
+            iscale.set_scaling_factor(rkt_var, sf)
             iscale.constraint_scaling_transform(self.block.ph_relaxation_constraint, sf)
 
     def initialize_relaxation_inputs(self):
-        if self.relaxation_constraint_types == "total_hydrogen_link":
+        if "total_hydrogen_link" in self.relaxation_constraint_types:
+            user_val = self.solver.input_specs.user_inputs["pH"].get_pyomo_var()
+            iscale.set_scaling_factor(user_val, 1)
+
+        if "total_oxygen_link" in self.relaxation_constraint_types:
             calculate_variable_from_constraint(
                 self.solver.output_specs.user_outputs[
                     ("elementAmount", "O")
                 ].get_pyomo_var(),
                 self.block.h2o_relaxation_constraint,
             )
-            sf = self.get_sf(
-                self.solver.output_specs.user_outputs[
-                    ("elementAmount", "O")
-                ].get_pyomo_var(),
-                use_default_scaling=True,
-            )
+            sf = (
+                self.get_sf(
+                    self.solver.output_specs.user_outputs[
+                        ("elementAmount", "O")
+                    ].get_pyomo_var(),
+                    use_default_scaling=True,
+                )
+                * self.relaxation_constraint_types["total_oxygen_link"]["O_multiplier"]
+            )  # ensure we have enough precision to resolve OH-
             self.block.relaxation_H2O.value = (
                 self.solver.output_specs.user_outputs[("elementAmount", "O")]
                 .get_pyomo_var()
                 .value
             )
-            # self.solver.state.inputs["H2O"].pyomo_var.value = (
-            #     self.block.relaxation_H2O.value
-            # )
+            iscale.set_scaling_factor(
+                self.block.reaktoro_model.outputs[("elementAmount", "O")], sf
+            )
+            iscale.constraint_scaling_transform(
+                self.block.output_constraints[("elementAmount", "O")], sf
+            )
             iscale.constraint_scaling_transform(
                 self.block.h2o_relaxation_constraint, sf
             )
             iscale.set_scaling_factor(self.block.relaxation_H2O, sf)
+            iscale.set_scaling_factor(self.block.element_amounts_O, sf)
 
     def initialize(self, presolve_during_initialization=False):
         self.initialize_relaxation_inputs()
@@ -316,8 +343,11 @@ class ReaktoroBlockBuilder:
             self.solver.solve_reaktoro_block(presolve=presolve_during_initialization)
         else:
             self.reaktoro_initialize_function(presolve=presolve_during_initialization)
+
         self.initialize_output_variables_and_constraints()
         self.initialize_relaxation_outputs()
+        self.set_jacobian_scaling()
+        self.set_user_jacobian_scaling()
         _log.info(f"Initialized rkt block")
 
     def get_sf(self, pyo_var, use_default_scaling, return_none=1):
@@ -389,8 +419,6 @@ class ReaktoroBlockBuilder:
 
         # update jacobian scaling
         self.set_output_vars_and_scale(True)
-        self.set_jacobian_scaling()
-        self.set_user_jacobian_scaling()
 
     def set_jacobian_scaling(self):
         if self.jacobian_scaling_type == JacScalingTypes.no_scaling:
@@ -404,6 +432,7 @@ class ReaktoroBlockBuilder:
                 self.solver.output_specs.rkt_outputs.items()
             ):
                 out_sf = iscale.get_scaling_factor(obj.get_pyomo_var(), default=1)
+
                 sf = 1 / out_sf
                 self.solver.jacobian_scaling_values[i] = sf
         elif self.jacobian_scaling_type == JacScalingTypes.jacobian_matrix:

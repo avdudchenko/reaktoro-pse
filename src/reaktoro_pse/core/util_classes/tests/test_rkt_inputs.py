@@ -24,7 +24,6 @@ def build_inputs():
 
     test_vars["H2O"] = Var(initialize=1, units=pyunits.kg / pyunits.s)
     test_vars["H2O"].construct()
-
     return test_vars
 
 

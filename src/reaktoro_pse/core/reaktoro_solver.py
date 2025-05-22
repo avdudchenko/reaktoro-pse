@@ -75,8 +75,8 @@ class ReaktoroSolver:
         existing_constraints = self.input_specs.equilibrium_specs.namesConstraints()
 
         existing_variables = self.input_specs.equilibrium_specs.namesControlVariables()
-        _log.info(f"rktSolver inputs: {existing_variables}")
-        _log.info(f"rktSolver constraints: {existing_constraints}")
+        _log.debug(f"rktSolver inputs: {existing_variables}")
+        _log.debug(f"rktSolver constraints: {existing_constraints}")
         self.solver = rkt.EquilibriumSolver(self.input_specs.equilibrium_specs)
         self.conditions = rkt.EquilibriumConditions(self.input_specs.equilibrium_specs)
 
@@ -128,7 +128,7 @@ class ReaktoroSolver:
         presolve_epsilon=1e-12,
         max_iters=500,
         presolve_max_iters=500,
-        hessian_type="NoHessian",
+        hessian_type="ZeroHessian",
     ):
         """configuration for reaktro solver
 
@@ -176,7 +176,6 @@ class ReaktoroSolver:
             else:
                 value = params.get(input_key)
                 input_obj.set_temp_value(value)
-
             unit = input_obj.main_unit
             self._input_params[input_key] = value
 

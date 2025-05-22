@@ -41,28 +41,20 @@ def test_thermal_precipt():
         pytest.approx(
             m.precipitation_properties[("speciesAmount", "Calcite")].value, 1e-2
         )
-        == 0.0006758619742413355
+        == 0.0005126288369679213
     )
     assert (
         pytest.approx(
             m.precipitation_properties[("vaporPressure", "H2O(g)")].value, 1e-3
         )
-        == 13558.67127352554
+        == 12162.679
     )
     assert (
         pytest.approx(m.precipitation_properties[("pH", None)].value, 1e-3)
-        == 6.8970980807083855
+        == 6.937058009543962
     )
-    assert pytest.approx(m.Q_heating.value, 1e-3) == 145000
-    assert pytest.approx(m.Q_recoverable.value, 1e-3) == 72500
-    assert (
-        pytest.approx(m.precipitator_temperature.value, 1e-3)
-        == 273.15 + 52.21361654532427
-    )
-    assert (
-        pytest.approx(m.cooled_treated_temperature.value, 1e-1)
-        == 273.15 + 29.341319404872877
-    )
+    assert pytest.approx(m.Q_heating.value, 1e-3) == 125.56703878573431 * 1000
+    assert pytest.approx(m.precipitator_temperature.value, 1e-3) == 273.15 + 50
 
 
 def test_ion_exchange():

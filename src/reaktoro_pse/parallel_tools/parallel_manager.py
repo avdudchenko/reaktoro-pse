@@ -10,8 +10,6 @@
 # "https://github.com/watertap-org/reaktoro-pse/"
 #################################################################################
 
-import array
-from calendar import c
 import multiprocessing as mp
 from multiprocessing import shared_memory
 from multiprocessing import Pipe

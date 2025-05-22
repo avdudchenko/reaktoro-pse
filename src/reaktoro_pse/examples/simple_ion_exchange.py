@@ -10,7 +10,9 @@
 # "https://github.com/watertap-org/reaktoro-pse/"
 #################################################################################
 from reaktoro_pse.reaktoro_block import ReaktoroBlock
-
+from reaktoro_pse.core.util_classes.cyipopt_solver import (
+    get_cyipopt_watertap_solver,
+)
 from pyomo.environ import (
     ConcreteModel,
     Var,
@@ -121,6 +123,9 @@ def build_simple_desal():
             ("charge", None): m.feed_charge,
             "speciesAmount": True,
         },
+        reaktoro_solve_options={
+            "solver_tolerance": 1e-12,
+        },
         dissolve_species_in_reaktoro=True,
         assert_charge_neutrality=False,
         build_speciation_block=False,
@@ -214,15 +219,13 @@ def build_simple_desal():
     @m.Constraint(list(m.treated_composition.keys()))
     def eq_removal(fs, ion):
         return (
-            m.removal_percent[ion]
-            == (m.treated_composition[ion] - m.feed_composition[ion])
-            / m.feed_composition[ion]
-            * 100
+            m.removal_percent[ion] * m.feed_composition[ion]
+            == (m.treated_composition[ion] - m.feed_composition[ion]) * 100
         )
 
     # Calculate Ca to Mg selectivity
     m.eq_selectivity = Constraint(
-        expr=m.Ca_to_Mg_selectivity == m.removal_percent["Ca"] / m.removal_percent["Mg"]
+        expr=m.Ca_to_Mg_selectivity * m.removal_percent["Mg"] == m.removal_percent["Ca"]
     )
     scale_model(m)
     return m
@@ -245,11 +248,11 @@ def scale_model(m):
         iscale.set_scaling_factor(m.used_ion_exchange_material[key], 10)
         iscale.constraint_scaling_transform(m.eq_used_ix[key], 10)
     iscale.constraint_scaling_transform(m.eq_selectivity, 10)
-    iscale.set_scaling_factor(m.acid_addition, 1e2)
-    iscale.set_scaling_factor(m.base_addition, 1e2)
+    iscale.set_scaling_factor(m.acid_addition, 1e4)
+    iscale.set_scaling_factor(m.base_addition, 1e4)
     iscale.set_scaling_factor(m.Ca_to_Mg_selectivity, 10)
-    iscale.set_scaling_factor(m.feed_charge, 1e8)
-    iscale.set_scaling_factor(m.treated_feed_charge, 1e8)
+    iscale.set_scaling_factor(m.feed_charge, 1)
+    iscale.set_scaling_factor(m.treated_feed_charge, 1)
 
 
 def initialize(m):
@@ -298,10 +301,7 @@ def display_results(m):
 
 
 def solve(m):
-    cy_solver = get_solver(solver="cyipopt-watertap")
-    cy_solver.options["max_iter"] = 100
-    # only enable if avaialbe !
-    # cy_solver.options["linear_solver"] = "ma27"
+    cy_solver = get_cyipopt_watertap_solver()
     result = cy_solver.solve(m, tee=True)
     display_results(m)
     return result

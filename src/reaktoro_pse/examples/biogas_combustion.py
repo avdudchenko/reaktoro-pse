@@ -10,7 +10,9 @@
 # "https://github.com/watertap-org/reaktoro-pse/"
 #################################################################################
 from reaktoro_pse.reaktoro_block import ReaktoroBlock
-
+from reaktoro_pse.core.util_classes.cyipopt_solver import (
+    get_cyipopt_watertap_solver,
+)
 from pyomo.environ import (
     ConcreteModel,
     Var,
@@ -197,10 +199,7 @@ def display_results(m):
 
 
 def solve(m):
-    cy_solver = get_solver(solver="cyipopt-watertap")
-    cy_solver.options["max_iter"] = 20
-    # only enable if avaialbe !
-    # cy_solver.options["linear_solver"] = "ma27"
+    cy_solver = get_cyipopt_watertap_solver()
     result = cy_solver.solve(m, tee=True)
     display_results(m)
     return result

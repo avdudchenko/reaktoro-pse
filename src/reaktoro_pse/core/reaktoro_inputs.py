@@ -104,7 +104,6 @@ class ReaktoroInputSpec:
         self.rkt_chemical_inputs[chemical] = RktInput(
             var_name=chemical, pyomo_var=pyomo_var
         )
-
         mw, mw_unit = self.get_modifier_mw(self.chemical_to_elements[chemical])
         self.state.verify_unit(self.rkt_chemical_inputs[chemical], mw, mw_unit)
 
@@ -187,7 +186,6 @@ class ReaktoroInputSpec:
             else:
                 spec_var_name = spec
             # only care for indexes that exists and were added to spec
-
             if self.rkt_inputs.get(spec_var_name) is not None:
                 self.rkt_inputs[spec_var_name].set_jacobian_index(idx)
                 # tracking inputs we are passing into our spec problem
@@ -303,6 +301,8 @@ class ReaktoroInputSpec:
                 self.write_speciesAmount_constraint(
                     specs_object, specie, input_name=spc_name
                 )
+                if "H2O_evaporation" in spc_name:
+                    assert False
                 if spc_name not in self.rkt_inputs and spc_name in self.state.inputs:
                     self.rkt_inputs[spc_name] = self.state.inputs[spc_name]
                     self.rkt_inputs[spc_name].set_rkt_input_name(spc_name)
@@ -403,10 +403,10 @@ class ReaktoroInputSpec:
             self.rkt_inputs[specie].set_rkt_index(idx)
             self.rkt_inputs[specie].set_rkt_input_name(input_name)
             self.rkt_inputs[specie].set_lower_bound(0)
-        elif specie in self.rkt_inputs:
-            self.rkt_inputs[specie].set_rkt_index(idx)
-            self.rkt_inputs[specie].set_rkt_input_name(input_name)
-            self.rkt_inputs[specie].set_lower_bound(0)
+        # elif specie in self.rkt_inputs:
+        #     self.rkt_inputs[specie].set_rkt_index(idx)
+        #     self.rkt_inputs[specie].set_rkt_input_name(input_name)
+        #     self.rkt_inputs[specie].set_lower_bound(0)
         else:
             raise KeyError(f"Specie is not found {specie}")
 

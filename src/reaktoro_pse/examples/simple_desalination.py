@@ -11,7 +11,9 @@
 #################################################################################
 from reaktoro_pse.parallel_tools import reaktoro_block_manager
 from reaktoro_pse.reaktoro_block import ReaktoroBlock
-
+from reaktoro_pse.core.util_classes.cyipopt_solver import (
+    get_cyipopt_watertap_solver,
+)
 from pyomo.environ import (
     ConcreteModel,
     Var,
@@ -57,7 +59,7 @@ def main():
     return m
 
 
-def build_simple_desal(parallel_mode=True):
+def build_simple_desal(parallel_mode=False):
     m = ConcreteModel()
     m.feed_composition = Var(
         ["H2O", "Mg", "Na", "Cl", "SO4", "Ca", "HCO3"],
@@ -183,6 +185,7 @@ def initialize(m):
     m.eq_desal_properties.initialize()
 
     solve(m)
+    m.eq_desal_properties.display_reaktoro_state()
 
 
 def setup_optimization(m):
@@ -202,12 +205,10 @@ def display_results(m):
 
 
 def solve(m):
-    cy_solver = get_solver(solver="cyipopt-watertap")
-    cy_solver.options["max_iter"] = 300
-    # only enable if avaialbe !
-    # cy_solver.options["linear_solver"] = "ma27"
+    cy_solver = get_cyipopt_watertap_solver()
     result = cy_solver.solve(m, tee=True)
     display_results(m)
+    m.eq_desal_properties.display_reaktoro_state()
     return result
 
 

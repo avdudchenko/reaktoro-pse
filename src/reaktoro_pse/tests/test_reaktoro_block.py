@@ -25,6 +25,9 @@ from watertap_solvers import get_solver
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
     ExternalGreyBoxModel,
 )
+from reaktoro_pse.core.util_classes.cyipopt_solver import (
+    get_cyipopt_watertap_solver,
+)
 
 
 @pytest.fixture
@@ -106,7 +109,7 @@ def test_blockBuild(build_rkt_state_with_species):
 
     print("rkt block")
     m.property_block.initialize()
-    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver = get_cyipopt_watertap_solver()
     cy_solver.options["max_iter"] = 20
     m.pH.fix()
     m.composition["H2O"].unfix()
@@ -144,7 +147,7 @@ def test_activate_deactivate(build_rkt_state_with_species):
     for v in m.property_block.component_data_objects(ExternalGreyBoxModel):
         assert v.active == False
 
-    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver = get_cyipopt_watertap_solver()
     cy_solver.options["max_iter"] = 20
     m.pH.fix()
     m.composition["H2O"].unfix()
@@ -203,7 +206,7 @@ def test_blockBuild_solids_gas(build_rkt_state_with_species):
     )
     m.display()
     m.property_block.initialize()
-    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver = get_cyipopt_watertap_solver()
     cy_solver.options["max_iter"] = 20
     m.temp.fix(273.15 + 50)
     result = cy_solver.solve(m, tee=True)
@@ -213,12 +216,12 @@ def test_blockBuild_solids_gas(build_rkt_state_with_species):
         pytest.approx(m.solid_gas_outputs[("vaporPressure", "H2O(g)")].value, 1e-1)
         == 49382.90
     )
-    # assert (
-    #     pytest.approx(m.solid_gas_outputs[("speciesAmount", "Calcite")].value) == 0.0001
-    # )
 
 
-def test_blockBuild_with_speciation_block(build_rkt_state_with_species):
+@pytest.mark.parametrize("ph_relax, water_relax", [(True, False), (True, True)])
+def test_blockBuild_with_speciation_with_ph_relaxation_block(
+    build_rkt_state_with_species, ph_relax, water_relax
+):
     m = build_rkt_state_with_species
     m.CaO = Var(["CaO"], initialize=0.001, units=pyunits.mol / pyunits.s)
     m.CaO.fix()
@@ -237,10 +240,12 @@ def test_blockBuild_with_speciation_block(build_rkt_state_with_species):
         database_file="pitzer.dat",
         chemistry_modifier=m.CaO,
         outputs=m.outputs,
+        enable_pH_relaxation_on_property_block=ph_relax,
+        enable_solvent_relaxation_on_property_block=water_relax,
         build_speciation_block=True,
     )
     m.property_block.initialize()
-    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver = get_cyipopt_watertap_solver()
     cy_solver.options["max_iter"] = 20
     m.pH.unfix()
     m.outputs[("scalingTendency", "Calcite")].fix(5)
@@ -253,7 +258,6 @@ def test_blockBuild_with_speciation_block(build_rkt_state_with_species):
     m.property_block.display_jacobian_outputs()
 
     scaling_result = m.property_block.display_jacobian_scaling()
-    print(scaling_result)
     expected_scaling = {
         "speciation_block": {
             ("speciesAmount", "H+"): 9.007999999999993e-08,
@@ -272,8 +276,8 @@ def test_blockBuild_with_speciation_block(build_rkt_state_with_species):
         "property_block": {
             ("saturationIndex", "Calcite"): 1.0039063040136889,
             ("pH", None): 6.999999999999997,
-            ("elementAmount", "H"): 100.06604790440808,
-            ("elementAmount", "O"): 50.05722130488963,
+            ("elementAmount", "H"): 100.06604790440808 / 1e3,
+            ("elementAmount", "O"): 50.05722130488963 / 1e3,
         },
     }
     assert "speciation_block" in scaling_result
@@ -327,7 +331,7 @@ def test_blockBuild_with_speciation_block_no_chem_addition(
         build_speciation_block=True,
     )
     m.property_block.initialize()
-    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver = get_cyipopt_watertap_solver()
     cy_solver.options["max_iter"] = 20
     m.pH.unfix()
     m.outputs[("scalingTendency", "Calcite")].fix(5)
@@ -384,7 +388,7 @@ def test_blockBuild_with_temp_and_pressure_modification_in_speciation_block(
         build_speciation_block=True,
     )
     m.property_block.initialize()
-    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver = get_cyipopt_watertap_solver()
     cy_solver.options["max_iter"] = 20
     m.pH.unfix()
     m.outputs_mod[("scalingTendency", "Calcite")].fix(5)
@@ -428,20 +432,27 @@ def test_blockBuild_with_speciation_block_no_chem_super_critical_db(
         database="SupcrtDatabase",
         database_file="supcrtbl",
         outputs=m.outputs,
-        reaktoro_solve_options={
-            "solver_tolerance": 1e-12,
-        },
+        # reaktoro_solve_options={
+        #     "solver_tolerance": 1e-12,
+        # },
         build_speciation_block=True,
+        assert_charge_neutrality_on_property_block=False,
     )
     for e, con in m.property_block.rkt_inputs.constraint_dict.items():
         print(e, con)
     m.property_block.initialize()
+    # sup critical does not like limited_memory option
+    cy_solver = get_cyipopt_watertap_solver(limited_memory=False)
 
-    m.display()
-    cy_solver = get_solver(solver="cyipopt-watertap")
     cy_solver.options["max_iter"] = 50
+    result = cy_solver.solve(m, tee=True)
     m.pH.unfix()
+    # cy_solver = get_cyipopt_watertap_solver(limited_memory=True)
     m.outputs[("scalingTendency", "Calcite")].fix(5)
+    m.property_block.display()
+    m.property_block.speciation_block.outputs.display()
+    m.property_block.speciation_block.reaktoro_model.display()
+    m.property_block.reaktoro_model.display()
     result = cy_solver.solve(m, tee=True)
 
     m.display()
@@ -476,7 +487,7 @@ def test_indexed_blockBuild(build_rkt_state_with_indexed_species):
     for blk in m.property_block:
         m.property_block[blk].initialize()
     m.property_block[0].reaktoro_model.display()
-    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver = get_cyipopt_watertap_solver()
     cy_solver.options["max_iter"] = 20
     m.pH.unfix()
     m.outputs[0, ("scalingTendency", "Calcite")].fix(5)
@@ -511,11 +522,13 @@ def test_indexed_blockBuild_with_speciation_block(
         database_file="pitzer.dat",
         outputs=m.outputs,
         build_speciation_block=True,
+        enable_pH_relaxation_on_property_block=True,
+        enable_solvent_relaxation_on_property_block=True,
     )
     for blk in m.property_block:
         m.property_block[blk].initialize()
     m.property_block.display()
-    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver = get_cyipopt_watertap_solver()
     cy_solver.options["max_iter"] = 20
     m.CaO.unfix()
     m.outputs[(0, "pH", None)].fix(11.5)

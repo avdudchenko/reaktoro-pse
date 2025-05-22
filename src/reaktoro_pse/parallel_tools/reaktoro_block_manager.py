@@ -11,8 +11,6 @@
 #################################################################################
 
 import multiprocessing
-from matplotlib.pyplot import sca
-from pytest import param
 from reaktoro_pse.core.reaktoro_gray_box import (
     ReaktoroGrayBox,
 )
@@ -25,7 +23,7 @@ from pyomo.contrib.pynumero.interfaces.external_grey_box import (
 )
 import numpy as np
 from idaes.core.base.process_base import declare_process_block_class, ProcessBlockData
-from pyomo.common.config import ConfigValue, IsInstance, ConfigDict
+from pyomo.common.config import ConfigValue, IsInstance
 
 
 class ReaktoroBlockData:
@@ -220,12 +218,12 @@ class ReaktoroBlockManagerData(ProcessBlockData):
     CONFIG.declare(
         "hessian_type",
         ConfigValue(
-            default=HessTypes.NoHessian,
+            default=HessTypes.ZeroHessian,
             domain=IsInstance((str, HessTypes)),
             description="Hessian type to use for reaktor gray box",
             doc="""Hessian type to use, some might provide better stability
                 options:
-                - NoHessian - no hessian
+                - ZeroHessian - no hessian
                 - GaussNewton - default
                 - BFGS - Broyden-Fletcher-Goldfarb-Shanno   
                 - BFGS_mod - modified BFGS

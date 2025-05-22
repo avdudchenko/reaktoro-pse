@@ -10,7 +10,9 @@
 # "https://github.com/watertap-org/reaktoro-pse/"
 #################################################################################
 from reaktoro_pse.reaktoro_block import ReaktoroBlock
-
+from reaktoro_pse.core.util_classes.cyipopt_solver import (
+    get_cyipopt_watertap_solver,
+)
 
 from pyomo.environ import (
     ConcreteModel,
@@ -18,10 +20,15 @@ from pyomo.environ import (
     Constraint,
     assert_optimal_termination,
     units as pyunits,
+    Objective,
+    maximize,
 )
-from watertap_solvers import get_solver
+from reaktoro_pse.parallel_tools.reaktoro_block_manager import (
+    ReaktoroBlockManager,
+)
+
 from pyomo.util.calc_var_value import calculate_variable_from_constraint
-import reaktoro
+
 import idaes.core.util.scaling as iscale
 
 __author__ = "Alexander V. Dudchenko"
@@ -49,12 +56,11 @@ __author__ = "Alexander V. Dudchenko"
 def main():
     m = build_simple_precipitation()
     initialize(m)
-    setup_optimization(m)
-    solve(m)
+
     return m
 
 
-def build_simple_precipitation():
+def build_simple_precipitation(parallel_mode=False):
     m = ConcreteModel()
     m.feed_composition = Var(
         ["H2O", "Mg", "Na", "Cl", "SO4", "Ca", "HCO3"],
@@ -71,7 +77,7 @@ def build_simple_precipitation():
     m.feed_composition["SO4"].fix(0.02)
     m.feed_temperature = Var(initialize=293.15, units=pyunits.K)
     m.feed_temperature.fix()
-    m.feed_pressure = Var(initialize=1e5, units=pyunits.Pa)
+    m.feed_pressure = Var(initialize=101325, units=pyunits.Pa)
     m.feed_pressure.fix()
     m.feed_pH = Var(initialize=7, bounds=(4, 12), units=pyunits.dimensionless)
     m.feed_pH.fix()
@@ -97,20 +103,14 @@ def build_simple_precipitation():
         initialize=273.15 + 50, bounds=(273.15, 273.15 + 99), units=pyunits.K
     )
     m.precipitator_temperature.fix()
-    m.cooled_treated_temperature = Var(
-        initialize=273.15 + 12.5, bounds=(273.15, 273.15 + 99), units=pyunits.K
-    )
     m.Q_heating = Var(initialize=0, units=pyunits.J / pyunits.s)
-    m.Q_recoverable = Var(initialize=0, units=pyunits.J / pyunits.s)
-    m.Q_recovery_eff = Var(initialize=0.5, units=pyunits.dimensionless)
-    m.Q_recovery_eff.fix()
+
     # we only need enthalpy - can also request output pH, and pass it to precipitator
     # but dont need to - assume the temperature is not impacting pH
     m.feed_properties = Var(
         [
             ("molarEnthalpy", None),
             ("vaporPressure", "H2O(g)"),
-            ("specificHeatCapacityConstP", None),
         ],
         initialize=1,
     )
@@ -118,7 +118,6 @@ def build_simple_precipitation():
         [
             ("speciesAmount", "Calcite"),
             ("speciesAmount", "Anhydrite"),
-            ("specificHeatCapacityConstP", None),
             ("molarEnthalpy", None),
             ("pH", None),
             ("vaporPressure", "H2O(g)"),
@@ -128,18 +127,10 @@ def build_simple_precipitation():
     m.treated_properties = Var(
         [
             ("molarEnthalpy", None),
-            ("specificHeatCapacityConstP", None),
         ],
         initialize=1,
     )
-    m.cooled_treated_properties = Var(
-        [
-            ("molarEnthalpy", None),
-            ("vaporPressure", "H2O(g)"),
-            ("specificHeatCapacityConstP", None),
-        ],
-        initialize=1,
-    )
+
     reactant_dict = {
         "Ca": (1, "Calcite"),
         "HCO3": (1, "Calcite"),
@@ -155,16 +146,6 @@ def build_simple_precipitation():
             * sum([obj for key, obj in m.feed_composition.items()])
         )
     )
-    m.eq_Q_recoverable = Constraint(
-        expr=m.Q_recoverable
-        == (
-            m.treated_properties[("molarEnthalpy", None)]
-            * sum([obj for key, obj in m.treated_composition.items()])
-            - m.cooled_treated_properties[("molarEnthalpy", None)]
-            * sum([obj for key, obj in m.treated_composition.items()])
-        )
-    )
-    m.eq_Q_equlaity = Constraint(expr=m.Q_heating * m.Q_recovery_eff == m.Q_recoverable)
 
     # connecting feed to precipitator composition
     @m.Constraint(list(m.feed_composition.keys()))
@@ -203,17 +184,13 @@ def build_simple_precipitation():
             return (
                 m.precipitation_properties[("speciesAmount", reactant_dict[key][1])]
                 * reactant_dict[key][0]
-                + m.sludge_composition["H2O"]
-                * m.treated_composition[key]
-                / m.treated_composition["H2O"]
-                == m.sludge_composition[key]
+                + m.sludge_composition["H2O"] * m.treated_composition[key]
+                == m.sludge_composition[key] * m.treated_composition["H2O"]
             )
         else:
             return (
-                m.sludge_composition["H2O"]
-                * m.treated_composition[key]
-                / m.treated_composition["H2O"]
-                == m.sludge_composition[key]
+                m.sludge_composition["H2O"] * m.treated_composition[key]
+                == m.sludge_composition[key] * m.treated_composition["H2O"]
             )
 
     # We have to use super critical database to get enthalpy data as
@@ -235,12 +212,29 @@ def build_simple_precipitation():
         "Ca": "Ca+2",
         "HCO3": "HCO3-",
     }
+    # We will exclude species here that are present in zero concentration and we do not expect to participate
+    exclude_species_list = [
+        "S2O5-2",
+        "S2O6-2",
+        "S2O8-2",
+        "S5O6-2",
+        "HO2-",
+        "HClO2(aq)",
+        "HClO(aq)",
+        "H2S2O4(aq)",
+        "H2O2(aq)",
+        "ClO-",
+        "ClO2-",
+        "ClO3-",
+        "ClO4-",
+    ]
     # note how we included nitrogen as one of gas species, this will prevent
     # PengRobinson EOS from forcing all of the water into vapor phase (refer to NOTE above)"""
 
-    # we can import new database using initialized reaktoro object as shown in this block, or as strings in block down below"""
-    database = reaktoro.SupcrtDatabase("supcrtbl")
-
+    if parallel_mode:
+        m.parallel_block_manager = ReaktoroBlockManager()
+    else:
+        m.parallel_block_manager = None
     m.eq_feed_properties = ReaktoroBlock(
         system_state={
             "temperature": m.feed_temperature,
@@ -259,14 +253,13 @@ def build_simple_precipitation():
             "phase_components": ["H2O(g)", "N2(g)"],
             "activity_model": "ActivityModelRedlichKwong",
         },
-        database=database,  # need to specify new data base to use
+        database="SupcrtDatabase",  # need to specify new data base to use
+        database_file="supcrtbl",
         dissolve_species_in_reaktoro=True,
-        jacobian_options={
-            "user_scaling": {
-                ("molarEnthalpy", None): 1e-3,
-                ("specificHeatCapacityConstP", None): 1,
-            },
-        },
+        exclude_species_list=exclude_species_list,
+        reaktoro_block_manager=m.parallel_block_manager,
+        build_speciation_block=False,
+        assert_charge_neutrality_on_property_block=True,
     )
 
     # """ need to get precipitator enthalpy to find required power input """
@@ -288,15 +281,15 @@ def build_simple_precipitation():
             "phase_components": ["H2O(g)", "N2(g)"],
             "activity_model": "ActivityModelRedlichKwong",
         },
-        database=database,  # need to specify new data base to use
+        database="SupcrtDatabase",  # need to specify new data base to use
+        database_file="supcrtbl",
         dissolve_species_in_reaktoro=True,
         build_speciation_block=True,
-        jacobian_options={
-            "user_scaling": {
-                ("molarEnthalpy", None): 1e-3,
-                ("specificHeatCapacityConstP", None): 1,
-            },
-        },
+        exclude_species_list=exclude_species_list,
+        reaktoro_block_manager=m.parallel_block_manager,
+        assert_charge_neutrality_on_property_block=True,
+        # enable_pH_relaxation_on_property_block=False,  # If True, this can cause issues with pH
+        # enable_solvent_relaxation_on_property_block=False,  # If True, this can cause issues with pH
     )
 
     m.eq_treated_properties = ReaktoroBlock(
@@ -317,44 +310,17 @@ def build_simple_precipitation():
             "phase_components": ["H2O(g)", "N2(g)"],
             "activity_model": "ActivityModelRedlichKwong",
         },
-        database=database,  # need to specify new data base to use
+        database="SupcrtDatabase",  # need to specify new data base to use
+        database_file="supcrtbl",
         dissolve_species_in_reaktoro=True,
-        jacobian_options={
-            "user_scaling": {
-                ("molarEnthalpy", None): 1e-3,
-                ("specificHeatCapacityConstP", None): 1,
-            },
-        },
+        exclude_species_list=exclude_species_list,
+        reaktoro_block_manager=m.parallel_block_manager,
+        assert_charge_neutrality_on_property_block=True,
+        build_speciation_block=False,
     )
-
-    m.eq_cooled_treated_properties = ReaktoroBlock(
-        system_state={
-            "temperature": m.cooled_treated_temperature,
-            "pressure": m.feed_pressure,
-            "pH": m.precipitation_properties[("pH", None)],
-        },
-        aqueous_phase={
-            "composition": m.treated_composition,
-            "convert_to_rkt_species": True,
-            "species_to_rkt_species_dict": translation_dict,
-            "activity_model": "ActivityModelPitzer",
-        },
-        outputs=m.cooled_treated_properties,
-        mineral_phase={"phase_components": ["Calcite", "Anhydrite"]},
-        gas_phase={
-            "phase_components": ["H2O(g)", "N2(g)"],
-            "activity_model": "ActivityModelRedlichKwong",
-        },
-        database=database,  # need to specify new data base to use
-        dissolve_species_in_reaktoro=True,
-        jacobian_options={
-            "user_scaling": {
-                ("molarEnthalpy", None): 1e-3,
-                ("specificHeatCapacityConstP", None): 1,
-            },
-        },
-    )
-
+    # assert False
+    if parallel_mode:
+        m.parallel_block_manager.build_reaktoro_blocks()
     scale_model(m)
     return m
 
@@ -382,28 +348,25 @@ def scale_model(m):
         iscale.constraint_scaling_transform(
             m.eq_precipitator_composition[key], 1 / m.feed_composition[key].value
         )
+    iscale.set_scaling_factor(m.feed_pH, 1)
+    iscale.set_scaling_factor(
+        m.precipitation_properties[("speciesAmount", "Calcite")], 1e3
+    )
+    iscale.set_scaling_factor(
+        m.precipitation_properties[("speciesAmount", "Anhydrite")], 1e3
+    )
 
+    me_scale = 1
+
+    iscale.set_scaling_factor(m.feed_properties[("molarEnthalpy", None)], me_scale)
     iscale.set_scaling_factor(
-        m.precipitation_properties[("speciesAmount", "Calcite")], 1e5
+        m.precipitation_properties[("molarEnthalpy", None)], me_scale
     )
-    iscale.set_scaling_factor(
-        m.precipitation_properties[("speciesAmount", "Anhydrite")], 1e5
-    )
-    iscale.set_scaling_factor(
-        m.precipitation_properties[("molarEnthalpy", None)], 1 / 1e6
-    )
-    iscale.set_scaling_factor(m.feed_properties[("molarEnthalpy", None)], 1 / 1e3)
-    iscale.set_scaling_factor(m.treated_properties[("molarEnthalpy", None)], 1 / 1e3)
-    iscale.set_scaling_factor(
-        m.cooled_treated_properties[("molarEnthalpy", None)], 1 / 1e6
-    )
-    iscale.set_scaling_factor(m.feed_temperature, 1 / 100)
-    iscale.set_scaling_factor(m.precipitator_temperature, 1 / 100)
-    iscale.set_scaling_factor(m.cooled_treated_temperature, 1 / 100)
-    iscale.set_scaling_factor(m.Q_heating, 1 / 1e3)
-    iscale.set_scaling_factor(m.Q_recoverable, 1 / 1e3)
-    iscale.constraint_scaling_transform(m.eq_Q_heating, 1 / 1e3)
-    iscale.constraint_scaling_transform(m.eq_Q_recoverable, 1 / 1e3)
+    iscale.set_scaling_factor(m.treated_properties[("molarEnthalpy", None)], me_scale)
+    iscale.set_scaling_factor(m.feed_temperature, 1 / 273)
+    iscale.set_scaling_factor(m.precipitator_temperature, 1 / 273)
+    iscale.set_scaling_factor(m.Q_heating, 1e-3)
+    iscale.constraint_scaling_transform(m.eq_Q_heating, 1e-3)
 
 
 def initialize(m):
@@ -415,7 +378,9 @@ def initialize(m):
     # initialize feed and precipitation properties
     # This will also get us initial precipitation amounts"""
     m.eq_feed_properties.initialize()
+    m.eq_feed_properties.display_jacobian_scaling()
     m.eq_precipitation_properties.initialize()
+    m.eq_precipitation_properties.display_jacobian_scaling()
     # get sludge flow volume first
     calculate_variable_from_constraint(
         m.sludge_composition["H2O"], m.eq_sludge_composition["H2O"]
@@ -425,7 +390,6 @@ def initialize(m):
     # treated or sludge ion composition, lets for initialization assume
     # that treated comp is same as feed composition and use that to estimate
     # initial sludge comp
-
     for key, obj in m.feed_composition.items():
         if key == "H2O":
             calculate_variable_from_constraint(
@@ -435,23 +399,16 @@ def initialize(m):
             m.treated_composition[key].value = obj.value
 
     m.eq_treated_properties.initialize()
-    m.eq_cooled_treated_properties.initialize()
     solve(m)
 
 
-def setup_optimization(m):
-    m.Q_heating.fix(145000)
-    m.precipitator_temperature.unfix()
-
-
-def solve(m):
-    cy_solver = get_solver(solver="cyipopt-watertap")
-    cy_solver.options["max_iter"] = 100
-    # only enable if avaialbe !
-    # cy_solver.options["linear_solver"] = "ma27"
+def solve(
+    m,
+):
+    cy_solver = get_cyipopt_watertap_solver(max_iter=50)
     result = cy_solver.solve(m, tee=True)
-    assert_optimal_termination(result)
     display_results(m)
+    assert_optimal_termination(result)
     return result
 
 
@@ -459,7 +416,7 @@ def display_results(m):
     print("result")
     m.eq_precipitation_properties.display_reaktoro_state()
     print(
-        f"Feed temp {m.feed_temperature.value-273.15}, precipitator temp {m.precipitator_temperature.value-273.15}, treated temp {m.cooled_treated_temperature.value-273.15}."
+        f"Feed temp {m.feed_temperature.value-273.15}, precipitator temp {m.precipitator_temperature.value-273.15}"
     )
     print(
         f"""Feed vapor pressure {m.feed_properties[("vaporPressure", "H2O(g)")].value} (Pa)"""
@@ -467,18 +424,11 @@ def display_results(m):
     print(
         f"""Precipitator vapor pressure {m.precipitation_properties[("vaporPressure", "H2O(g)")].value} (Pa),"""
     )
-    print(
-        f"""Treated vapor pressure {m.cooled_treated_properties[("vaporPressure", "H2O(g)")].value} (Pa)."""
-    )
-    print(
-        f"Q heating {m.Q_heating.value/1000} kJ/s, Q recoverable {m.Q_recoverable.value/1000} kJ/s"
-    )
+    print(f"Q heating {m.Q_heating.value/1000} kJ/s")
     print(
         f"Specific heat input {m.Q_heating.value/1000/(m.precipitator_temperature.value-m.feed_temperature.value)/(55*18.015/1000)} kJ/K/kg"
     )
-    print(
-        f'Specific heat capacity feed {m.feed_properties[("specificHeatCapacityConstP", None)].value}, (J/K/kg) precipitator {m.precipitation_properties[("specificHeatCapacityConstP", None)].value}(J/K/kg)'
-    )
+
     print(
         f'Calcite precipitation {m.precipitation_properties[("speciesAmount", "Calcite")].value} mol/s'
     )

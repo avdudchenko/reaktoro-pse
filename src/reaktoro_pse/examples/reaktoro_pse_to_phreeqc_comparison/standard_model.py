@@ -10,7 +10,9 @@
 # "https://github.com/watertap-org/reaktoro-pse/"
 #################################################################################
 from reaktoro_pse.reaktoro_block import ReaktoroBlock
-
+from reaktoro_pse.core.util_classes.cyipopt_solver import (
+    get_cyipopt_watertap_solver,
+)
 from pyomo.environ import (
     ConcreteModel,
     Var,
@@ -61,8 +63,8 @@ def build_modification_example(water_comp):
     )
     m.water_recovery.fix()
     m.eq_water_flow = Constraint(
-        expr=m.water_recovery
-        == m.modified_properties_water_removal / m.feed_composition["H2O"]
+        expr=m.water_recovery * m.feed_composition["H2O"]
+        == m.modified_properties_water_removal
     )
     return m
 
@@ -116,9 +118,9 @@ def scale_model(m):
         iscale.set_scaling_factor(
             m.feed_composition[key], 1 / m.feed_composition[key].value
         )
-    iscale.set_scaling_factor(m.water_recovery, 1 / 1)
-    iscale.set_scaling_factor(m.acid_addition, 1 / 0.001)
-    iscale.set_scaling_factor(m.base_addition, 1 / 0.001)
+    iscale.set_scaling_factor(m.water_recovery, 1)
+    iscale.set_scaling_factor(m.acid_addition, 1 / 0.00001)
+    iscale.set_scaling_factor(m.base_addition, 1 / 0.00001)
 
 
 def initialize(m):
@@ -130,6 +132,6 @@ def initialize(m):
 
 
 def solve(m):
-    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver = get_cyipopt_watertap_solver()  # get_solver(solver="cyipopt-watertap")
     result = cy_solver.solve(m, tee=True)
     return result

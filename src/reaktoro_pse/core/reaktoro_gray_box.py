@@ -66,7 +66,7 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
         self.old_params = None
 
         _log.info(f"RKT gray box using {self.hess_type} hessian type")
-        if self.hess_type != HessTypes.no_hessian:
+        if self.hess_type != HessTypes.no_hessian_estimation:
             self.hessian_calculator = HessianApproximation(hessian_type=self.hess_type)
             setattr(self, "evaluate_hessian_outputs", self._evaluate_hessian_outputs)
 
@@ -81,7 +81,6 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
         return self.outputs
 
     def set_input_values(self, input_values):
-        self._input_scale = self.reaktoro_solver.get_input_scaling()
         # set input values from Pyomo as inputs to External Model (required by Grey Box)
         self._input_values = list(input_values)
 
@@ -104,9 +103,7 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
     def evaluate_outputs(self):
         # update Reaktoro state with current inputs (this function runs repeatedly)
         self.params = dict(zip(self.inputs, self._input_values))
-
         self.get_last_output(self.params)
-
         return np.array(self.rkt_result, dtype=np.float64)
 
     def get_last_output(self, new_params):
@@ -135,39 +132,14 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
     def get_output_constraint_scaling_factors(self):
         return self.reaktoro_solver.get_jacobian_scaling()
 
-    def apply_dual_multipliers(self, hessian_matrix):
-        h_sum = np.zeros((len(self.inputs), len(self.inputs)))
-        for i in range(self.jacobian_matrix.shape[0]):
-            h_sum += self.H[i] * self._outputs_dual_multipliers[i]
-
-        return h_sum
-
     def _evaluate_hessian_outputs(self):
         """Evaluate the Hessian matrix of the outputs with respect to the inputs."""
-        hessian_matrix = self.hessian_calculator.get_hessian(
-            self._input_values, self.rkt_result, self.jacobian_matrix
+
+        low_triangular_hessian = self.hessian_calculator.get_hessian(
+            self._input_values,
+            self.rkt_result,
+            self.jacobian_matrix,
+            self._outputs_dual_multipliers,
         )
-        if isinstance(hessian_matrix, coo_matrix):
-            return hessian_matrix
-        else:
-            hessian_matrix = self.apply_dual_multipliers(hessian_matrix)
-            low_triangular_hessian = _hand_tril(np.array(hessian_matrix))
-            return low_triangular_hessian
 
-
-def _hand_tril(jm):
-    assert jm.shape[0] == jm.shape[1]
-    shape = jm.shape[0]
-    row = []
-    col = []
-    val = []
-
-    for i in range(shape):
-        for j in range(i + 1):
-            row.append(i)
-            col.append(j)
-            v = jm[i, j]
-
-            val.append(v)
-
-    return coo_matrix((val, (row, col)), shape=(shape, shape))
+        return low_triangular_hessian
