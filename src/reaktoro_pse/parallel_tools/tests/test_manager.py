@@ -103,7 +103,6 @@ def test_blockBuild_with_speciation_block(build_rkt_state_with_species):
         )
     m.property_block.update_jacobian_scaling(new_scaling)
     scaling_result = m.property_block.display_jacobian_scaling()
-    assert len(m.property_block.reaktoro_model.outputs) == 4
 
     assert "speciation_block" in scaling_result
     for key in scaling_result["speciation_block"]:

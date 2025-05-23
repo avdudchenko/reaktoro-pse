@@ -235,7 +235,7 @@ class ReaktoroBlockData(ProcessBlockData):
     CONFIG.declare(
         "enable_solvent_relaxation_on_property_block",
         ConfigValue(
-            default=True,
+            default=False,
             domain=bool,
             description="This will enable relaxation O species in the property block",
             doc="""
@@ -791,7 +791,10 @@ class ReaktoroBlockData(ProcessBlockData):
         ):
             exact_speciation = True
             if self.relaxing_pH_enabled:
-                if self.config.assert_charge_neutrality_on_property_block:
+                if (
+                    self.config.assert_charge_neutrality_on_property_block
+                    and self.config.assert_charge_neutrality
+                ):
                     assert_charge_neutrality = True
                     ion_for_balancing = "pOH"
                 else:

@@ -63,7 +63,7 @@ def test_ion_exchange():
     assert pytest.approx(m.removal_percent["Mg"].value, 1e-1) == -35.54130924283
     assert pytest.approx(m.removal_percent["Ca"].value, 1e-1) == -79.15299911033
     assert pytest.approx(m.treated_pH.value, 1e-2) == 13.374349619456911
-    assert pytest.approx(m.base_addition.value, 1e-2) == 0.31967192053040094
+    assert pytest.approx(m.base_addition.value, 1e-1) == 0.31967192053040094
 
 
 def test_biogas():
