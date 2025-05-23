@@ -123,9 +123,6 @@ def build_simple_desal():
             ("charge", None): m.feed_charge,
             "speciesAmount": True,
         },
-        reaktoro_solve_options={
-            "solver_tolerance": 1e-12,
-        },
         dissolve_species_in_reaktoro=True,
         assert_charge_neutrality=False,
         build_speciation_block=False,
@@ -251,8 +248,8 @@ def scale_model(m):
     iscale.set_scaling_factor(m.acid_addition, 1e4)
     iscale.set_scaling_factor(m.base_addition, 1e4)
     iscale.set_scaling_factor(m.Ca_to_Mg_selectivity, 10)
-    iscale.set_scaling_factor(m.feed_charge, 1)
-    iscale.set_scaling_factor(m.treated_feed_charge, 1)
+    iscale.set_scaling_factor(m.feed_charge, 1e-4)
+    iscale.set_scaling_factor(m.treated_feed_charge, 1e-4)
 
 
 def initialize(m):

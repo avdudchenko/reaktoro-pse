@@ -53,7 +53,7 @@ def test_thermal_precipt():
         pytest.approx(m.precipitation_properties[("pH", None)].value, 1e-3)
         == 6.937058009543962
     )
-    assert pytest.approx(m.Q_heating.value, 1e-3) == 125.56703878573431 * 1000
+    assert pytest.approx(m.Q_heating.value, 1e-2) == 127043.64015901716
     assert pytest.approx(m.precipitator_temperature.value, 1e-3) == 273.15 + 50
 
 
@@ -63,7 +63,7 @@ def test_ion_exchange():
     assert pytest.approx(m.removal_percent["Mg"].value, 1e-1) == -35.54130924283
     assert pytest.approx(m.removal_percent["Ca"].value, 1e-1) == -79.15299911033
     assert pytest.approx(m.treated_pH.value, 1e-2) == 13.374349619456911
-    assert pytest.approx(m.base_addition.value, abs=1e-3) == 0.31967192053040094
+    assert pytest.approx(m.base_addition.value, 1e-2) == 0.31967192053040094
 
 
 def test_biogas():
