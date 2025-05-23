@@ -356,7 +356,7 @@ def scale_model(m):
         m.precipitation_properties[("speciesAmount", "Anhydrite")], 1e3
     )
 
-    me_scale = 1
+    me_scale = 1e-2
 
     iscale.set_scaling_factor(m.feed_properties[("molarEnthalpy", None)], me_scale)
     iscale.set_scaling_factor(

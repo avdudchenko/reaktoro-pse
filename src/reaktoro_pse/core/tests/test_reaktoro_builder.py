@@ -35,7 +35,9 @@ from reaktoro_pse.core.tests.test_reaktoro_state import (
 )
 from pyomo.environ import Block, assert_optimal_termination
 from idaes.core.util.model_statistics import degrees_of_freedom
-from watertap_solvers import get_solver
+from reaktoro_pse.core.util_classes.cyipopt_solver import (
+    get_cyipopt_watertap_solver,
+)
 
 
 @pytest.fixture
@@ -153,7 +155,7 @@ def test_build_with_rkt_dissolution(build_with_dissolve_in_rkt):
         rkt_solver.output_specs.rkt_outputs
     )
     assert degrees_of_freedom(m) == 0
-    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver = get_cyipopt_watertap_solver(solver="cyipopt-watertap")
     cy_solver.options["max_iter"] = 20
     m.pH.unfix()
     m.rkt_block.outputs[("scalingTendency", "Calcite")].fix(5)
@@ -176,7 +178,7 @@ def test_build_with_pyomo_dissolution(build_with_dissolve_in_pyomo):
     # knowing tha graybox exists.
     print(rkt_solver.output_specs.rkt_outputs)
     assert degrees_of_freedom(m) == 0
-    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver = get_cyipopt_watertap_solver(solver="cyipopt-watertap")
     cy_solver.options["max_iter"] = 20
     m.pH.unfix()
     m.display()
@@ -205,7 +207,7 @@ def test_build_with_rkt_dissolution_mass_basis(build_with_dissolve_in_rkt_mass_b
         rkt_solver.output_specs.rkt_outputs
     )
     assert degrees_of_freedom(m) == 0
-    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver = get_cyipopt_watertap_solver(solver="cyipopt-watertap")
     cy_solver.options["max_iter"] = 20
     m.pH.unfix()
     m.rkt_block.outputs[("scalingTendency", "Calcite")].fix(5)
@@ -230,7 +232,7 @@ def test_build_with_pyomo_dissolution_mass_basis(
     # will have as many DOFs as outputs due to pyomo not
     # knowing tha graybox exists.
     assert degrees_of_freedom(m) == 0
-    cy_solver = get_solver(solver="cyipopt-watertap")
+    cy_solver = get_cyipopt_watertap_solver(solver="cyipopt-watertap")
     cy_solver.options["max_iter"] = 20
     m.pH.unfix()
     m.display()
