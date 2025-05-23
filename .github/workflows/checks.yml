@@ -78,7 +78,7 @@ jobs:
           activate-environment: ${{ matrix.install-mode == 'dev' && 'reaktoro-pse-dev' || 'reaktoro-pse' }}
       - name: Install conda-forge dependencies
         run: |
-          conda install reaktoro=2.12 cyipopt=1.4.1
+          conda install reaktoro>=2.13 cyipopt>=1.4.1
       - if: matrix.install-mode == 'dev'
         name: Install (dev)
         run: |
