@@ -51,6 +51,13 @@ from pyomo.contrib.pynumero.interfaces.external_grey_box import (
         "SR1",
         "PSB",
         "SR1_lagrangian",
+        pytest.param(
+            "FD_jacobian",
+            marks=pytest.mark.xfail(
+                reason="FD hessian is accurate here (symmetric, matches second "
+                "differences) but ipopt stalls in restoration, under investigation"
+            ),
+        ),
     ],
 )
 def test_blockBuild_with_speciation_block(build_rkt_state_with_species, hess_type):

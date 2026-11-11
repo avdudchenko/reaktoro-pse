@@ -23,6 +23,10 @@ from reaktoro_pse.core.util_classes.hessian_functions import (
     HessTypes,
     HESSIAN_DEFAULTS,
 )
+from reaktoro_pse.core.util_classes.fd_hessian import (
+    JacobianFiniteDifference,
+    compute_fd_steps,
+)
 
 __author__ = "Ilayda Akkor, Alexander V. Dudchenko, Paul Vecchiarelli, Ben Knueven"
 _log = idaeslog.getLogger(__name__)
@@ -50,6 +54,9 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
         sr1_skip_tolerance=HESSIAN_DEFAULTS["sr1_skip_tolerance"],
         hessian_input_scaling=HESSIAN_DEFAULTS["hessian_input_scaling"],
         hessian_support=None,
+        fd_hessian_step=HESSIAN_DEFAULTS["fd_hessian_step"],
+        fd_hessian_central=HESSIAN_DEFAULTS["fd_hessian_central"],
+        fd_hessian_fallback_type=HESSIAN_DEFAULTS["fd_hessian_fallback_type"],
     ):
         """configure gray box
 
@@ -59,6 +66,8 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
                 depends on, None means all inputs
             hessian_input_scaling: if True, quasi-Newton updates are done in
                 inputs scaled by the scaling factors of the gray box input variables
+            fd_hessian_step, fd_hessian_central, fd_hessian_fallback_type: options
+                for HessTypes.FD_jacobian (see fd_hessian module)
         """
         # assign a Reaktoro state object to instance
         self.reaktoro_solver = reaktoro_solver
@@ -77,6 +86,13 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
             )
             hessian_input_scaling = getattr(
                 reaktoro_solver, "hessian_input_scaling", hessian_input_scaling
+            )
+            fd_hessian_step = getattr(reaktoro_solver, "fd_hessian_step", fd_hessian_step)
+            fd_hessian_central = getattr(
+                reaktoro_solver, "fd_hessian_central", fd_hessian_central
+            )
+            fd_hessian_fallback_type = getattr(
+                reaktoro_solver, "fd_hessian_fallback_type", fd_hessian_fallback_type
             )
         else:
             hess_type = hessian_type
@@ -100,6 +116,21 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
         self.old_params = None
 
         _log.info(f"RKT gray box using {hess_type} hessian type")
+        self.fd_hessian = hess_type == HessTypes.FD_jacobian
+        self.fd_provider = None
+        if self.fd_hessian:
+            self.fd_hessian_step = fd_hessian_step
+            # quasi-Newton hessian used where perturbed solves fail, it also defines
+            # the sparsity pattern
+            hess_type = fd_hessian_fallback_type
+            if hasattr(self.reaktoro_solver, "evaluate_fd_hessian"):
+                # aggregated solver (ReaktoroBlockManager) evaluates block by block
+                self.fd_provider = self.reaktoro_solver
+                self.fd_provider.configure_fd_hessian(central=fd_hessian_central)
+            else:
+                self.fd_provider = JacobianFiniteDifference.from_solver(
+                    self.reaktoro_solver, self.inputs, central=fd_hessian_central
+                )
         if hess_type != HessTypes.no_hessian_estimation:
             self.hessian_calculator = HessianApproximation(
                 hessian_type=hess_type,
@@ -204,5 +235,50 @@ class ReaktoroGrayBox(ExternalGreyBoxModel):
             self.jacobian_matrix,
             self._outputs_dual_multipliers,
         )
-
+        if self.fd_hessian:
+            low_triangular_hessian = self._fd_hessian(low_triangular_hessian)
         return low_triangular_hessian
+
+    def _fd_step_data(self):
+        """step sizes and bounds for finite difference hessian"""
+        x = np.array(self._input_values, dtype=float)
+        n = len(x)
+        typical = np.full(n, np.nan)
+        lower = np.full(n, -np.inf)
+        upper = np.full(n, np.inf)
+        if self._input_vars is not None:
+            for i, var in enumerate(self.inputs):
+                v = self._input_vars[var]
+                sf = iscale.get_scaling_factor(v)
+                if sf is not None and sf > 0:
+                    typical[i] = 1 / sf
+                if v.lb is not None:
+                    lower[i] = v.lb
+                if v.ub is not None:
+                    upper[i] = v.ub
+        steps = compute_fd_steps(x, self.fd_hessian_step, typical, lower, upper)
+        return x, steps, lower, upper
+
+    def _fd_hessian(self, fallback):
+        """replace fallback hessian values by finite difference values where the
+        finite difference hessian is available (same sparsity pattern)"""
+        x, steps, lower, upper = self._fd_step_data()
+        try:
+            H, ok = self.fd_provider.evaluate_fd_hessian(
+                x,
+                self.jacobian_matrix,
+                self._outputs_dual_multipliers,
+                steps,
+                lower,
+                upper,
+            )
+        except Exception as e:
+            _log.warning(
+                f"fd hessian failed with {e!r}, using fallback hessian", exc_info=True
+            )
+            return fallback
+        rows, cols = fallback.row, fallback.col
+        use = ok[rows] & ok[cols]
+        data = np.array(fallback.data, dtype=float)
+        data[use] = H[rows[use], cols[use]]
+        return coo_matrix((data, (rows, cols)), shape=fallback.shape)

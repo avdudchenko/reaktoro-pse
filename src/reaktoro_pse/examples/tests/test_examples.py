@@ -60,6 +60,8 @@ def test_redox_couples():
         # "BFGS_mod", does not work on this example
         "BFGS_damp",
         "BFGS_ipopt",
+        "SR1",
+        "FD_jacobian",
     ],
 )
 def test_desal(hess_type):
@@ -89,6 +91,8 @@ def test_desal(hess_type):
         "BFGS_mod",
         "BFGS_damp",
         "BFGS_ipopt",
+        "SR1",
+        "FD_jacobian",
     ],
 )
 def test_thermal_precipt(hess_type):
@@ -124,6 +128,8 @@ def test_thermal_precipt(hess_type):
         "BFGS_mod",
         "BFGS_damp",
         "BFGS_ipopt",
+        "SR1",
+        "FD_jacobian",
     ],
 )
 def test_ion_exchange(hess_type):
@@ -145,6 +151,8 @@ def test_ion_exchange(hess_type):
         "BFGS_mod",
         # "BFGS_damp", # does not work on this example
         "BFGS_ipopt",
+        "SR1",
+        "FD_jacobian",
     ],
 )
 def test_biogas(hess_type):

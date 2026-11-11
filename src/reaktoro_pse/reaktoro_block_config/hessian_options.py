@@ -44,6 +44,9 @@ class HessianOptions:
                 - SR1 - symmetric rank one, per output, allows indefinite curvature
                 - PSB - Powell symmetric Broyden, per output, allows indefinite curvature
                 - SR1_lagrangian - symmetric rank one on the Lagrangian of each block
+                - FD_jacobian - finite differences of the reaktoro jacobian, near exact
+                    hessian at the cost of one reaktoro solve per input per new point
+                    (see fd_hessian_* options)
                     """,
             ),
         )
@@ -138,6 +141,40 @@ class HessianOptions:
                 (x_scaled = sf*x, using scaling factors on gray box input variables),
                 this makes the initial matrix and update tests consistent across inputs
                 with very different magnitudes. Hessian returned to solver is unscaled.
+                    """,
+            ),
+        )
+        CONFIG.declare(
+            "fd_hessian_step",
+            ConfigValue(
+                default=HESSIAN_DEFAULTS["fd_hessian_step"],
+                domain=float,
+                description="Relative step for FD_jacobian hessian",
+                doc="""Step for input k is fd_hessian_step*max(|x_k|, 1/sf_k), where sf_k is
+                scaling factor of the gray box input (if set). Should be about the square root
+                of reaktoro solver tolerance.
+                    """,
+            ),
+        )
+        CONFIG.declare(
+            "fd_hessian_central",
+            ConfigValue(
+                default=HESSIAN_DEFAULTS["fd_hessian_central"],
+                domain=bool,
+                description="Use central differences for FD_jacobian hessian",
+                doc="""If True, uses central differences (two reaktoro solves per input)
+                instead of forward differences (one solve per input)
+                    """,
+            ),
+        )
+        CONFIG.declare(
+            "fd_hessian_fallback_type",
+            ConfigValue(
+                default=HESSIAN_DEFAULTS["fd_hessian_fallback_type"],
+                domain=IsInstance((str, HessTypes)),
+                description="Hessian type used when FD_jacobian perturbed solves fail",
+                doc="""Quasi-Newton hessian type (see hessian_type) that is updated on every
+                call and used for blocks where perturbed reaktoro solves failed
                     """,
             ),
         )

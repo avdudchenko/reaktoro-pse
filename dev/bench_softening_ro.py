@@ -36,6 +36,9 @@ CASES = {
     "psb_sc1": ("PSB", "scalar1", {}),
     "sr1lag_zero": ("SR1_lagrangian", "zero", {}),
     "sr1lag_sc1": ("SR1_lagrangian", "scalar1", {}),
+    # finite difference of reaktoro jacobian (M2), SR1 fallback
+    "fd_gn": ("FD_jacobian", "GaussNewton", {}),
+    "fd_central_gn": ("FD_jacobian", "GaussNewton", {"fd_hessian_central": True}),
     # scaled variants
     "lbfgs_sc1_scaled": ("LBFGS", "scalar1", {"hessian_input_scaling": True}),
     "sr1_zero_scaled": ("SR1", "zero", {"hessian_input_scaling": True}),

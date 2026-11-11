@@ -246,6 +246,49 @@ On the step-0 benchmark it needs clearly fewer Ipopt iterations than M1's best o
 with no new failures. Report wall time separately, since this method trades iterations
 for Reaktoro solves.
 
+**Status (M2.1–M2.3 implemented on `direct_hessian_test`, not done: fails the "done when").**
+
+- New type `HessTypes.FD_jacobian`, options `fd_hessian_step` (1e-4),
+  `fd_hessian_central` (False), `fd_hessian_fallback_type` (SR1).
+- Engine: `core/util_classes/fd_hessian.py` (`JacobianFiniteDifference`,
+  `compute_fd_steps`). The tensor dJ/dx_k is cached per point, so new λ cost no solves.
+  On failure it retries the opposite direction, then falls back to quasi-Newton for that
+  point. Asymmetry is measured in step-scaled inputs.
+- **Shadow solver is required** (not optional as hoped):
+  - Perturbing the main solver changed results. On `thermal_precipitation`, pE ended at
+    9.36 instead of -1.386, even when the FD values were discarded and SR1 was used.
+  - Restoring the main state is not possible. `ChemicalState.assign()` makes the next
+    solve stop after 1 iteration with the old values, and restoring species amounts
+    leaves the equilibrium variables, so the drift stays at about 1e-8.
+  - The shadow is built from export configs (`core/reaktoro_model_data.py`, now shared
+    with workers) and warm-started from the main species amounts, T and P before each
+    solve.
+  - One-sided differences use the shadow's own solve at x as base, because shadow and
+    main converge to slightly different states.
+- Grey box overlays FD values on the fallback pattern (same COO structure). Blocks
+  whose perturbed solves failed keep the fallback values.
+- Manager:
+  - Each worker computes its block in parallel via a new `fd_hessian` message and
+    shared buffers (λ/steps/bounds in, H/ok out), with the cache kept in the worker.
+  - In serial mode it runs per block (single solver only; serial + coupled is a
+    pre-existing gap).
+- Accuracy: on the solver fixture, the scaled asymmetry is about 1e-4 forward and 1e-7
+  central. The diagonal matches second differences of the outputs within 2%.
+- Integration:
+  - The four examples pass with FD_jacobian.
+  - The manager speciation test **fails**: the Hessian is accurate, yet Ipopt stalls in
+    restoration even with 100 iterations (now marked xfail).
+  - On softening-RO, init with FD failed after 1590 s with max iterations (run made
+    before the shadow-base fix), against 43 s for SR1.
+- Cost: n_in Reaktoro solves per new point per block (n+1 forward with the shadow base,
+  2n central). On the coupled thermal block, shadow solves average about 18 s.
+- Open: why an accurate Hessian makes Ipopt worse on the speciation/manager cases.
+  Candidates are that the FD Hessian is the Hessian of the shadow's function while main
+  J/outputs can be inconsistent (on the worker's main solver after perturbations, J
+  vs FD of outputs differed by 7–10%), or poor conditioning/indefiniteness without the
+  M1 implicit damping. M2.4 (hybrid refresh, seeding SR1 with FD per-output Hessians via
+  `output_hessians()`) is not started.
+
 ---
 
 ## Open questions

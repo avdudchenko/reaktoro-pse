@@ -30,6 +30,11 @@ import idaes.logger as idaeslog
 __author__ = "Alexander V. Dudchenko, Ben Knueven, Ilayda Akkor"
 
 _log = idaeslog.getLogger(__name__)
+
+
+_FD_KEYS = ("fd_hessian_step", "fd_hessian_central", "fd_hessian_fallback_type")
+
+
 # class to setup reaktor solver for reaktoro
 
 
@@ -111,6 +116,9 @@ class ReaktoroSolver:
         export_object.bfgs_epsilon = self.bfgs_epsilon
         export_object.sr1_skip_tolerance = self.sr1_skip_tolerance
         export_object.hessian_input_scaling = self.hessian_input_scaling
+        export_object.fd_hessian_step = self.fd_hessian_step
+        export_object.fd_hessian_central = self.fd_hessian_central
+        export_object.fd_hessian_fallback_type = self.fd_hessian_fallback_type
         export_object.block_name = self.block_name
         export_object.auto_scale_constraint = self.auto_scale_constraint
         return export_object
@@ -143,6 +151,10 @@ class ReaktoroSolver:
                 "hessian_input_scaling",
                 HESSIAN_DEFAULTS["hessian_input_scaling"],
             ),
+            **{
+                key: getattr(export_object, key, HESSIAN_DEFAULTS[key])
+                for key in _FD_KEYS
+            },
         )
 
     def equilibrate_state(self):
@@ -170,6 +182,9 @@ class ReaktoroSolver:
         auto_scale_constraint=True,
         sr1_skip_tolerance=HESSIAN_DEFAULTS["sr1_skip_tolerance"],
         hessian_input_scaling=HESSIAN_DEFAULTS["hessian_input_scaling"],
+        fd_hessian_step=HESSIAN_DEFAULTS["fd_hessian_step"],
+        fd_hessian_central=HESSIAN_DEFAULTS["fd_hessian_central"],
+        fd_hessian_fallback_type=HESSIAN_DEFAULTS["fd_hessian_fallback_type"],
     ):
         """configuration for reaktro solver
 
@@ -197,6 +212,9 @@ class ReaktoroSolver:
         self.bfgs_epsilon = bfgs_epsilon
         self.sr1_skip_tolerance = sr1_skip_tolerance
         self.hessian_input_scaling = hessian_input_scaling
+        self.fd_hessian_step = fd_hessian_step
+        self.fd_hessian_central = fd_hessian_central
+        self.fd_hessian_fallback_type = fd_hessian_fallback_type
         self.auto_scale_constraint = auto_scale_constraint
 
     def set_system_bounds(

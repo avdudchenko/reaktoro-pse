@@ -17,6 +17,7 @@ from reaktoro_pse.core.reaktoro_gray_box import (
 from reaktoro_pse.parallel_tools.parallel_manager import ReaktoroParallelManager
 
 from reaktoro_pse.core.util_classes.hessian_functions import HessTypes
+from reaktoro_pse.core.util_classes.fd_hessian import JacobianFiniteDifference
 
 from pyomo.contrib.pynumero.interfaces.external_grey_box import (
     ExternalGreyBoxBlock,
@@ -77,6 +78,10 @@ class AggregateSolverState:
         self.input_windows = {}
         self.output_windows = {}
         self.parallel_mode = parallel_mode
+        # finite difference hessian, serial: JacobianFiniteDifference per block,
+        # parallel: (start, get) worker functions per block
+        self.fd_functions = {}
+        self.fd_central = False
         if maximum_number_of_parallel_solves is None:
             maximum_number_of_parallel_solves = multiprocessing.cpu_count() - 1
         self.maximum_number_of_parallel_solves = maximum_number_of_parallel_solves
@@ -121,6 +126,61 @@ class AggregateSolverState:
             output_start,
             output_end + 1,
         )  # need to offset by 1
+
+    def register_fd_function(self, block_index, fd_function):
+        self.fd_functions[block_index] = fd_function
+
+    def configure_fd_hessian(self, central=False):
+        self.fd_central = central
+        for fd in self.fd_functions.values():
+            if isinstance(fd, JacobianFiniteDifference):
+                fd.central = central
+
+    def evaluate_fd_hessian(self, x, jac0, multipliers, steps, lower, upper):
+        """block diagonal finite difference hessian, each block is evaluated by its
+        own solver (in parallel mode by its worker, using its last solved point)
+
+        Returns:
+            (H, ok), H dense (n_in x n_in), ok False for inputs of blocks that failed
+        """
+        n = len(x)
+        H = np.zeros((n, n))
+        ok = np.zeros(n, dtype=bool)
+        jac0 = np.asarray(jac0)
+        multipliers = np.asarray(multipliers)
+
+        def block_data(blk):
+            i0, i1 = self.input_windows[blk]
+            o0, o1 = self.output_windows[blk]
+            return (
+                x[i0:i1],
+                jac0[o0:o1, i0:i1],
+                multipliers[o0:o1],
+                steps[i0:i1],
+                lower[i0:i1],
+                upper[i0:i1],
+            )
+
+        def place(blk, result):
+            i0, i1 = self.input_windows[blk]
+            Hb, okb = result
+            H[i0:i1, i0:i1] = Hb
+            ok[i0:i1] = okb
+
+        blocks = [b for b in self.registered_blocks if b in self.fd_functions]
+        if self.parallel_mode:
+            batch_size = max(1, self.maximum_number_of_parallel_solves)
+            for start in range(0, len(blocks), batch_size):
+                batch = blocks[start : start + batch_size]
+                for blk in batch:
+                    _, _, lam, h, lb, ub = block_data(blk)
+                    self.fd_functions[blk][0](lam, h, lb, ub, self.fd_central)
+                for blk in batch:
+                    place(blk, self.fd_functions[blk][1]())
+        else:
+            for blk in blocks:
+                place(blk, self.fd_functions[blk].evaluate_fd_hessian(*block_data(blk)))
+        return H, ok
 
     def get_hessian_support(self):
         """for each aggregated output, indexes of aggregated inputs of same block"""
@@ -336,9 +396,18 @@ class ReaktoroBlockManagerData(ProcessBlockData):
                     block.builder.get_jacobian_scaling, block.builder.get_input_scaling
                 )
                 self.aggregate_solver_state.register_get_function(block_idx, get_func)
+                self.aggregate_solver_state.register_fd_function(
+                    block_idx, self.parallel_manager.get_fd_hessian_functions(block_idx)
+                )
             else:
                 self.aggregate_solver_state.register_solve_function(
                     block_idx, block.solver.solve_reaktoro_block
+                )
+                self.aggregate_solver_state.register_fd_function(
+                    block_idx,
+                    JacobianFiniteDifference.from_solver(
+                        block.solver, block.inputs.rkt_inputs.rkt_input_list
+                    ),
                 )
         if self.config.use_parallel_mode:
             self.parallel_manager.start_workers()
@@ -360,6 +429,9 @@ class ReaktoroBlockManagerData(ProcessBlockData):
             bfgs_epsilon=self.config.hessian_options.bfgs_epsilon,
             sr1_skip_tolerance=self.config.hessian_options.sr1_skip_tolerance,
             hessian_input_scaling=self.config.hessian_options.hessian_input_scaling,
+            fd_hessian_step=self.config.hessian_options.fd_hessian_step,
+            fd_hessian_central=self.config.hessian_options.fd_hessian_central,
+            fd_hessian_fallback_type=self.config.hessian_options.fd_hessian_fallback_type,
             # outputs of a block only depend on inputs of the same block, restricting
             # hessian to block diagonal avoids spurious coupling between blocks
             hessian_support=self.aggregate_solver_state.get_hessian_support(),

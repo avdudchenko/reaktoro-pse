@@ -30,6 +30,11 @@ from reaktoro_pse.core.reaktoro_inputs import (
 from reaktoro_pse.core.reaktoro_solver import (
     ReaktoroSolver,
 )
+from reaktoro_pse.core.util_classes.fd_hessian import JacobianFiniteDifference
+from reaktoro_pse.core.reaktoro_model_data import (  # RktModelData kept importable here
+    RktModelData,
+    build_solver_from_configs,
+)
 import numpy as np
 import time
 
@@ -39,32 +44,6 @@ import idaes.logger as idaeslog
 _log = idaeslog.getLogger(__name__)
 
 
-class RktModelData:
-    def __init__(self, config_data):
-        """Initialize the Reaktoro state with the provided configuration data."""
-
-        self.build_state(config_data)
-
-    def build_state(self, config_data):
-        state_config, input_config, output_config, jacobian_config, solver_config = (
-            config_data
-        )
-        self.state = ReaktoroState()
-        self.state.load_from_export_object(state_config)
-        self.state.build_state()
-        self.inputs = ReaktoroInputSpec(self.state)
-        self.inputs.load_from_export_object(input_config)
-        self.inputs.build_input_specs()
-        self.outputs = ReaktoroOutputSpec(self.state)
-        self.outputs.load_from_export_object(output_config)
-        self.jacobian = ReaktoroJacobianSpec(self.state, self.outputs)
-        self.jacobian.load_from_export_object(jacobian_config)
-        self.solver = ReaktoroSolver(
-            self.state, self.inputs, self.outputs, self.jacobian
-        )
-        self.solver.load_from_export_object(solver_config)
-
-
 class RemoteWorker:
     def __init__(
         self,
@@ -72,11 +51,14 @@ class RemoteWorker:
         input_reference,
         output_reference,
         jacobian_reference,
+        fd_input_reference=None,
+        fd_output_reference=None,
     ):
         """build remote instance of reaktoro state and solver for execution in
         its own process"""
 
         self.process_config_data(config_data)
+        self.fd = None
 
         self.param_dict = {}
         self.input_reference = shared_memory.SharedMemory(name=input_reference)
@@ -104,33 +86,62 @@ class RemoteWorker:
         )
         self.params = {}
         self.old_params = {}
+        n_in = len(self.solver.input_specs.rkt_inputs.keys())
+        n_out = len(self.solver.output_specs.rkt_outputs.keys())
+        self.fd_input_reference = None
+        if fd_input_reference is not None:
+            self.fd_input_reference = shared_memory.SharedMemory(
+                name=fd_input_reference
+            )
+            self.fd_output_reference = shared_memory.SharedMemory(
+                name=fd_output_reference
+            )
+            self.fd_input = np.ndarray(
+                n_out + 3 * n_in, dtype=np.float64, buffer=self.fd_input_reference.buf
+            )
+            self.fd_output = np.ndarray(
+                n_in * n_in + 1, dtype=np.float64, buffer=self.fd_output_reference.buf
+            )
+
+    def fd_hessian(self, central=False):
+        """finite difference hessian of this block at last solved point, inputs
+        (multipliers, steps, bounds) and result are passed through shared memory"""
+        keys = list(self.solver.input_specs.rkt_inputs.keys())
+        n_in = len(keys)
+        n_out = len(self.solver.output_specs.rkt_outputs.keys())
+        if self.fd is None:
+            self.fd = JacobianFiniteDifference.from_solver(
+                self.solver, keys, config_data=self.config_data
+            )
+        self.fd.central = central
+        lam = self.fd_input[:n_out].copy()
+        steps, lower, upper = self.fd_input[n_out:].reshape(3, n_in).copy()
+        try:
+            H, ok = self.fd.evaluate_fd_hessian(
+                self.input_matrix[2].copy(),
+                self.jacobian_matrix.copy(),
+                lam,
+                steps,
+                lower,
+                upper,
+            )
+            ok = bool(np.all(ok))
+        except Exception as e:
+            _log.warning(f"fd hessian failed in worker: {e!r}")
+            H, ok = np.zeros((n_in, n_in)), False
+        self.fd_output[: n_in * n_in] = H.ravel()
+        self.fd_output[-1] = 1.0 if ok else 0.0
+        return WorkerMessages.success
 
     def process_config_data(self, config_data):
         """process config data to extract state, inputs, outputs, jacobian and solver"""
-        if isinstance(config_data, list):
-            self.rkt_model = RktModelData(config_data)
-            self.solver = self.rkt_model.solver
-        elif isinstance(config_data, dict):
-            spc_solvers = []
-            for key in config_data:
-                if key != "property_block":
-                    setattr(self, key, RktModelData(config_data[key]))
-                    spc_solvers.append(getattr(self, key).solver)
-                else:
-                    self.property_block = RktModelData(config_data[key])
-
-            self.solver = ReaktoroCoupledSolver(spc_solvers)
-            self.solver.register_property_solver(
-                self.property_block.solver,
-            )
-            for key, obj in self.property_block.solver.input_specs.rkt_inputs.items():
-                if obj.dummy_var_key is not None:
-                    obj.dummy_var = self.solver.outputs[obj.dummy_var_key]
-
+        self.config_data = config_data
+        self.solver, models = build_solver_from_configs(config_data)
+        if isinstance(models, dict):
+            for key, model in models.items():
+                setattr(self, key, model)
         else:
-            raise TypeError(
-                "config_data must be a tuple or a dictionary containing the configuration data"
-            )
+            self.rkt_model = models
 
     def initialize(self, presolve=False):
         _log.info("Initialized in remote worker")
@@ -193,6 +204,11 @@ class RemoteWorker:
         self.output_reference.unlink()
         self.jacobian_reference.close()
         self.jacobian_reference.unlink()
+        if self.fd_input_reference is not None:
+            self.fd_input_reference.close()
+            self.fd_input_reference.unlink()
+            self.fd_output_reference.close()
+            self.fd_output_reference.unlink()
 
 
 class WorkerMessages:
@@ -205,6 +221,7 @@ class WorkerMessages:
     terminate = "terminate"
     failed = "failed"
     display_state = "display_state"
+    fd_hessian = "fd_hessian"
 
 
 class LocalWorker:
@@ -258,6 +275,37 @@ class LocalWorker:
             dtype=np.float64,
             buffer=self.output_reference.buf,
         )
+        # finite difference hessian: in -> multipliers, steps, lower, upper bounds
+        # out -> flattened hessian and success flag
+        n_in = len(self.input_keys)
+        n_out = len(self.worker_data.outputs.rkt_outputs.keys())
+        self.fd_input_reference = shared_memory.SharedMemory(
+            create=True, size=np.zeros(n_out + 3 * n_in).nbytes
+        )
+        self.fd_input = np.ndarray(
+            n_out + 3 * n_in, dtype=np.float64, buffer=self.fd_input_reference.buf
+        )
+        self.fd_output_reference = shared_memory.SharedMemory(
+            create=True, size=np.zeros(n_in * n_in + 1).nbytes
+        )
+        self.fd_output = np.ndarray(
+            n_in * n_in + 1, dtype=np.float64, buffer=self.fd_output_reference.buf
+        )
+
+    def start_fd_hessian(self, multipliers, steps, lower, upper, central=False):
+        n_out = len(multipliers)
+        self.fd_input[:n_out] = multipliers
+        self.fd_input[n_out:] = np.concatenate([steps, lower, upper])
+        self.local_pipe.send((WorkerMessages.fd_hessian, central))
+
+    def get_fd_hessian(self):
+        result = self.local_pipe.recv()
+        n_in = len(self.input_keys)
+        if result != WorkerMessages.success:
+            return np.zeros((n_in, n_in)), np.zeros(n_in, dtype=bool)
+        H = self.fd_output[: n_in * n_in].reshape(n_in, n_in).copy()
+        ok = np.full(n_in, self.fd_output[-1] > 0.5)
+        return H, ok
 
     def initialize(self, presolve):
         for i, key in enumerate(self.input_keys):
@@ -338,6 +386,12 @@ class ReaktoroParallelManager:
     def get_jacobian_matrix_function(self, block_idx):
         return self.registered_workers[block_idx].get_jacobian_matrix_function
 
+    def get_fd_hessian_functions(self, block_idx):
+        return (
+            self.registered_workers[block_idx].start_fd_hessian,
+            self.registered_workers[block_idx].get_fd_hessian,
+        )
+
     def start_workers(self):
         for idx, local_worker in self.registered_workers.items():
             process = mp.Process(
@@ -349,6 +403,8 @@ class ReaktoroParallelManager:
                     local_worker.output_reference.name,
                     local_worker.jacobian_reference.name,
                     self.time_out,
+                    local_worker.fd_input_reference.name,
+                    local_worker.fd_output_reference.name,
                 ),
             )
             process.start()
@@ -362,10 +418,22 @@ class ReaktoroParallelManager:
 
 
 def ReaktoroActor(
-    pipe, reaktoro_block_data, input_matrix, output_matrix, jacobian_matrix, time_out=20
+    pipe,
+    reaktoro_block_data,
+    input_matrix,
+    output_matrix,
+    jacobian_matrix,
+    time_out=20,
+    fd_input_matrix=None,
+    fd_output_matrix=None,
 ):
     reaktoro_worker = RemoteWorker(
-        reaktoro_block_data, input_matrix, output_matrix, jacobian_matrix
+        reaktoro_block_data,
+        input_matrix,
+        output_matrix,
+        jacobian_matrix,
+        fd_input_matrix,
+        fd_output_matrix,
     )
     dog_watch = time.time()
     while True:
@@ -384,6 +452,8 @@ def ReaktoroActor(
                 result = WorkerMessages.success
             if command == WorkerMessages.solve:
                 result = reaktoro_worker.solve()
+            if command == WorkerMessages.fd_hessian:
+                result = reaktoro_worker.fd_hessian(central=option)
             if command == WorkerMessages.display_state:
                 result = reaktoro_worker.display_state()
                 result = WorkerMessages.success

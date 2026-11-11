@@ -136,6 +136,9 @@ class ReaktoroCoupledSolver:
         self.bfgs_epsilon = self.property_solver.bfgs_epsilon
         self.sr1_skip_tolerance = self.property_solver.sr1_skip_tolerance
         self.hessian_input_scaling = self.property_solver.hessian_input_scaling
+        self.fd_hessian_step = self.property_solver.fd_hessian_step
+        self.fd_hessian_central = self.property_solver.fd_hessian_central
+        self.fd_hessian_fallback_type = self.property_solver.fd_hessian_fallback_type
 
     def modify_key(self, index, key):
         """utility for generating single tuple key"""

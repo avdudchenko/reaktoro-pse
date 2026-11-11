@@ -55,6 +55,8 @@ class HessTypes:
     SR1 = "SR1"
     PSB = "PSB"
     SR1_lagrangian = "SR1_lagrangian"
+    # finite differences of the reaktoro jacobian (see fd_hessian module)
+    FD_jacobian = "FD_jacobian"
     no_hessian_estimation = "no_hessian_estimation"
     ZeroHessian = "ZeroHessian"
     sparse_16 = "sparse_16"
@@ -82,6 +84,10 @@ HESSIAN_DEFAULTS = {
     "bfgs_epsilon": 1e-16,
     "sr1_skip_tolerance": 1e-8,
     "hessian_input_scaling": False,
+    # FD_jacobian options
+    "fd_hessian_step": 1e-4,
+    "fd_hessian_central": False,
+    "fd_hessian_fallback_type": HessTypes.SR1,
 }
 
 _DIAGONAL_TYPES = (HessTypes.ZeroHessian, HessTypes.sparse_16)
